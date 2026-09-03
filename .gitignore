@@ -1,0 +1,15 @@
+/build/
+/build-*/
+/logs/
+/Testing/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.o
+*.a
+*.so
+*.log
+.vscode/
+.idea/
