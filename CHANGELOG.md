@@ -1,26 +1,25 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## 3.0.0 - 2026-09-05
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+- Add the standalone `igh-ethercat-diagnostics-web` C++ HTTP service.
+- Add a responsive Chinese dashboard for health, topology, root cause, evidence, recovery steps, and recent events.
+- Highlight the Master entry failure or the last-alive/first-lost slave boundary.
+- Detect stale diagnostic data without requiring synchronized board and browser clocks.
+- Add read-only status/events APIs, hardened systemd deployment, Web asset installation, and loopback HTTP tests.
+- Complete the V3.0 operator Web UI and deployment path.
 
-## [1.1.0] - 2026-09-03
+## 2.2.0 - 2026-09-05
 
-### Added
+- Deliver the V2.2 evidence-based root-cause diagnosis pipeline.
+- Use direct IgH ioctl access in the production monitoring path.
+- Add ESC port-error counter decoding and delta events.
+- Add evidence windows, configurable root-cause weights, confidence, explanations, and calibration matrix.
+- Publish atomic `latest_status.json` and append-only `events.jsonl` outputs.
+- Include systemd deployment, graceful shutdown, black-box recording, recovery tracking, and active ESC diagnosis.
 
-- 1 Hz monitoring of IgH EtherCAT master and slave status.
-- Unified `NetworkSnapshot` data model.
-- Master-link, slave-count, lost-slave, and AL-state change events.
-- Lost-slave boundary location.
-- In-memory snapshot ring buffer and JSONL fault black box.
-- Burst reads of ESC DL Status, AL Status, and AL Status Code registers.
-- Ten-second Cooldown for repeated active-diagnosis bursts.
-- One-shot network recovery events with duration and restored slave positions.
-- Graceful shutdown on `SIGINT` and `SIGTERM`.
-- `esc-diagnostic-probe` command-line utility.
+## 1.1.0
 
-### Verified
-
-- Built and tested on Debian GNU/Linux running on RK3588 (AArch64).
-- Passed 22 automated tests and a physical EtherCAT cable removal/recovery test.
+- Detect one-shot recovery events after a fault episode.
+- Add active ESC register Burst and Cooldown coordination.
+- Preserve fault context in JSONL black-box captures.

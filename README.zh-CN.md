@@ -2,315 +2,189 @@
 
 简体中文 | [English](README.md)
 
-一个面向 [IgH EtherCAT Master](https://etherlab.org/en/ethercat/) 系统的轻量级独立 EtherCAT 监控与故障诊断工具。
+这是一个面向 IgH EtherCAT Master 系统的独立 EtherCAT 监控与故障诊断工具。
 
-版本：**v1.1.0**
+版本：**v3.0.0**  
+作者：**Victor-Jiaxin Wang**  
+许可证：**MIT**
 
-## 项目简介
+## 项目作用
 
-IgH EtherCAT Diagnostics 持续采集 IgH EtherCAT 网络状态，将命令输出转换成结构化 C++ 快照，检测拓扑与状态变化，保存故障前后的现场信息，在疑似故障边界主动读取关键 ESC 寄存器，并在网络完整恢复时自动生成恢复事件。
+诊断进程运行在现有 EtherCAT 应用旁边，不进入 PDO 实时循环，也不请求占用 Master。它以 1 Hz 采集网络状态，检测拓扑和 AL 状态变化，保存故障前后的快照，定位可能的断点，读取 ESC 诊断寄存器，跟踪端口错误增量，识别网络恢复，并根据多种证据给出带置信度和解释信息的根因判断。
 
-它运行在现有 EtherCAT 应用旁边，不处理过程数据，不强制切换从站状态，不重启主站，也不会自动修复网络。
+程序提供两个稳定文件，并通过面向测试人员的 Web UI 展示：
 
-## 为什么需要这个项目
+- `logs/latest_status.json`：当前状态，通过原子替换更新。
+- `logs/events.jsonl`：故障、恢复和根因事件，只追加写入。
 
-EtherCAT 应用通常能够报告通信失败，但不一定能说明链路在哪里断开，也无法保存故障发生瞬间最后一个可达从站的状态。本项目帮助回答：
+独立的 `igh-ethercat-diagnostics-web` 在 8080 端口提供只读页面。测试人员可以直接看到网络状态、带红色断点的从站拓扑、通俗根因、置信度、判断依据、恢复步骤和最近事件。Web 流量不会阻塞 EtherCAT 采集。
 
-- 链路或拓扑什么时候发生了变化？
-- 哪些从站位置消失了？
-- 可达从站与丢失从站之间的疑似边界在哪里？
-- 故障发生后，边界位置的 ESC 报告了什么？
-- 故障前后有哪些网络快照？
-- 网络什么时候完整恢复，故障持续了多长时间？
+## 适用情况
 
-## 已实现功能
+- 调试和维护使用 IgH EtherCAT Master 的设备。
+- 捕获偶发的网线、接头、从站供电、下游掉站和 AL 状态故障。
+- 不修改运动控制实时程序，为现有系统增加旁路诊断。
 
-- 通过 `ethercat master` 和 `ethercat slaves` 以 1 Hz 监控 Master 0。
-- 统一的 `NetworkSnapshot`、`MasterSnapshot` 和 `SlaveSnapshot` 数据模型。
-- Master Link、从站数量、从站丢失和 AL 状态变化事件。
-- 根据故障前快照和当前拓扑定位故障边界。
-- 保存最近最多30个快照以及触发后10个快照的内存黑匣子。
-- 将故障现场保存为便于 Python、脚本和后续 Web 工具处理的 JSONL 文件。
-- Burst 方式读取 ESC 寄存器 `0x0110`、`0x0130`、`0x0134`。
-- 10秒 Cooldown，限制重复主动寄存器读取。
-- 一次性 Recovery Event，记录故障持续时间及恢复的从站位置。
-- 收到 `SIGINT`、`SIGTERM` 时安全退出。
-- 独立的 `esc-diagnostic-probe` 寄存器诊断工具。
-- 22项自动化测试，其中包含确保 Release 构建不会关闭测试断言的保护测试。
+本项目是诊断辅助工具，不是安全功能，也不会自动修复网络。
 
-## 适用场景
+## 主要功能
 
-- 调试和维护基于 IgH 的 EtherCAT 系统。
-- RK3588 等 ARM64 边缘计算机和开发板。
-- 希望使用轻量级独立诊断进程，而不想引入数据库平台的 Linux 控制器。
-- 捕获偶发的网线、接插件、从站供电或下游从站故障。
-- 结合真实工业通信问题学习现代 C++ 工程设计。
+- 生产采集路径直接使用 IgH ioctl，不启动 shell 子进程。
+- 统一 `NetworkSnapshot` 数据模型，采集后端可替换、可注入测试。
+- 检测掉站、状态变化、链路变化、恢复和端口错误事件。
+- 环形历史与 JSONL 黑匣子，保存故障前后证据。
+- 使用 Burst 和 Cooldown 控制故障后的 ESC 主动读取。
+- 定位故障边界，融合证据并输出可解释的根因排序。
+- 原子更新当前状态，追加记录历史事件。
+- 零第三方依赖的 C++ HTTP 服务和响应式中文诊断页面。
+- 支持 systemd、`SIGINT`/`SIGTERM` 优雅退出和自动化回归测试。
 
-## 当前限制
+## 软件结构
 
-V1.1 有意保持简单：
-
-- 仅支持 Linux，并依赖 IgH 的 `ethercat` 命令。
-- 当前仍通过 shell 命令采集数据，直接 ioctl 访问将在后续实现。
-- 监控程序固定使用 Master 0。
-- 采样周期固定为1秒。
-- 主动诊断 Cooldown 固定为10秒。
-- 运行文件写入进程工作目录下的 `./logs`。
-- 每次进程运行只保存第一次触发的黑匣子；要重新布防，需要重启程序。
-- V1.1 的 Recovery Event 输出到终端，尚未追加到故障 JSONL 文件。
-- 尚未包含配置文件解析、systemd 服务、自动修复、根因分析和 Web UI。
-- 本项目是诊断辅助工具，不属于安全功能，也未经过功能安全认证。
-
-## 工作原理
-
-程序每秒读取一次主站和从站状态并生成 `NetworkSnapshot`。`EventDetector` 比较连续快照。发现从站丢失时，只启动一轮主动诊断 Burst：`BoundaryLocator` 找出最后一个可达从站，`ActiveDiagnosis` 读取其 ESC 状态寄存器。黑匣子保存故障前后的网络历史。`RecoveryTracker` 将故障前拓扑作为恢复基线，只有 Link 和完整拓扑都恢复后才生成一次恢复事件。
-
-- **Burst** 决定一次故障读取多少 ESC 数据。
-- **Cooldown** 决定主动读取多久可以再次执行。
-- **RecoveryTracker** 判断一次故障过程何时结束。
-
-## 软件架构
-
-```mermaid
-flowchart LR
-    CLI[IgH ethercat CLI] --> CR[CommandRunner]
-    CR --> ER[EthercatReader]
-    ER --> NS[NetworkSnapshot]
-    NS --> ED[EventDetector]
-    ED --> FE[FaultEvent]
-    NS --> BB[Blackbox]
-    FE --> BB
-    NS --> RT[RecoveryTracker]
-    FE --> RT
-    RT --> RE[RecoveryEvent]
-    FE --> DC[DiagnosisCoordinator]
-    NS --> DC
-    DC --> BL[BoundaryLocator]
-    DC --> AD[ActiveDiagnosis]
-    AD --> ESC[ESC 0x0110 / 0x0130 / 0x0134]
+```text
+/dev/EtherCAT0 -> ioctl 后端 -> NetworkSnapshot -> 1 Hz Monitor
+                                            |
+       +--------------------+---------------+------------------+
+       |                    |                                  |
+   事件/恢复检测         环形历史                        端口错误增量
+       |                    |                                  |
+       +------------ DiagnosisCoordinator --------------------+
+                             |
+                  边界 + ESC 主动读取 + 根因
+                             |
+                 黑匣子 + 当前状态 + 事件流
+                             |
+                             v
+                    C++ Web 服务 -> 浏览器
 ```
 
-模块职责、对象关系、状态机、错误处理和扩展点请阅读[架构说明](docs/ARCHITECTURE.zh-CN.md)。
+完整模块关系见[软件架构](docs/ARCHITECTURE.zh-CN.md)，Web 字段契约见 [Web 数据格式](docs/WEB_DATA_SCHEMA.md)。
 
-## 前置条件
+## 依赖环境
 
-- Linux。
-- 已正确安装并运行 IgH EtherCAT Master。
-- IgH `ethercat` 命令可通过 `PATH` 找到。
-- 支持 C++17 的编译器。
-- CMake 3.18 或更高版本。
-- Make 或其他 CMake 支持的构建工具。
+- Linux 和可以正常工作的 IgH EtherCAT Master。
+- 能够读取 IgH 设备节点，通常是 `/dev/EtherCAT0`。
+- 支持 C++17 的编译器、CMake 3.18 或更高版本、Make 或 Ninja。
+- 工程自带的 IgH 1.6.3 ABI 头文件必须与板卡正在运行的 Master 匹配。如果版本不同，应替换头文件并重新完成全部测试。
 
-## 已验证的参考环境
+### 已验证参考环境
 
-v1.1.0 已在下列环境完成编译和测试。这是一套可供复现和排查问题的参考环境，并非平台限制。只要满足上述前置条件，并且 IgH 命令输出格式兼容，也可以在其他 Linux 开发板和处理器架构上使用。
-
-| 项目 | 实测值 |
+| 项目 | 环境 |
 | --- | --- |
 | 开发板 | Rockchip RK3588 TOYBRICK X10 Board |
-| 操作系统 | Debian GNU/Linux 11（bullseye） |
-| 处理器架构 | AArch64（`aarch64`） |
-| Linux 内核 | 5.10.161 |
-| CPU | 8 核 ARM Cortex-A55，Little Endian |
-| IgH EtherCAT Master | 1.6.3 |
-| EtherCAT 命令 | `/usr/bin/ethercat` |
-| EtherCAT 内核模块 | `ec_master`、`ec_generic` |
-| C++ 编译器 | GCC/G++ 10.2.1 |
+| 系统 | Debian GNU/Linux 11 (bullseye) |
+| 架构 | AArch64 (`aarch64`) |
+| 内核 | Linux 5.10.161 |
+| 编译器 | GCC/G++ 10.2.1 |
 | CMake | 3.18.4 |
-| GNU Make | 4.3 |
+| IgH Master | 1.6.3，运行时 ioctl magic 32 |
+| 内核模块 | `ec_master`、`ec_generic` |
+| 设备节点 | `/dev/EtherCAT0`，组 `ethercat`，权限 `0660` |
 
-编译前可以运行以下命令，记录并对照自己的环境：
+这是已经验证的参考组合，不是平台限制。其他 Linux 板卡只要架构、IgH ABI 和设备权限正确，也可以移植。
+
+## 编译与测试
 
 ```bash
-cat /proc/device-tree/model; echo
-cat /etc/os-release
-uname -srmo
-lscpu | grep -E 'Architecture|CPU\(s\)|Model name|Byte Order'
-g++ --version | head -n 1
-cmake --version | head -n 1
-make --version | head -n 1
-command -v ethercat
-ethercat version
-lsmod | grep -E '^(ec_master|ec_generic)'
+git clone <你的仓库地址>
+cd igh-ethercat-diagnostics
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel 4
+cd build && ctest --output-on-failure
+cd ..
+```
+
+生成的主要程序：
+
+- `build/igh-ethercat-diagnostics`：持续运行的诊断守护进程。
+- `build/igh-ethercat-diagnostics-web`：只读 HTTP API 与诊断页面服务。
+- `build/esc-diagnostic-probe`：单次 ESC 寄存器探针。
+- `build/root_cause_matrix_demo`：根因规则标定矩阵。
+- `build/snapshot_backend_compare`：ioctl 与旧 shell 后端迁移对比工具。
+
+单元测试使用注入的假数据，通常不要求 EtherCAT 硬件在线；真实探针需要 Master 与设备节点。
+
+## 直接运行
+
+先检查 IgH 服务和权限：
+
+```bash
+systemctl status ethercat --no-pager
+ls -l /dev/EtherCAT0
 ethercat master -m 0
 ethercat slaves -m 0
 ```
 
-不同系统显示的具体版本可以不同，但运行本项目之前，`ethercat master -m 0` 和 `ethercat slaves -m 0` 必须能够正常工作。如果执行失败，请先检查 IgH 安装、驱动模块、命令权限和主站配置。
-
-## 快速开始
-
-下载或克隆仓库并进入项目目录：
-
-```bash
-cd igh-ethercat-diagnostics
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 4
-cd build
-ctest --output-on-failure
-cd ..
-sudo ./build/igh-ethercat-diagnostics
-```
-
-按 `Ctrl+C` 可以安全停止程序。
-
-## 编译和测试
-
-Debug 编译：
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --parallel 4
-```
-
-执行全部测试：
-
-```bash
-cd build
-ctest --output-on-failure
-cd ..
-```
-
-进入 build 目录再运行 CTest，可以兼容 CMake/CTest 3.18。
-
-## 安装
-
-将两个可执行程序安装到默认路径，通常是 `/usr/local/bin`：
-
-```bash
-sudo cmake --install build
-```
-
-安装后的命令为：
-
-```text
-/usr/local/bin/igh-ethercat-diagnostics
-/usr/local/bin/esc-diagnostic-probe
-```
-
-需要其他安装位置时：
-
-```bash
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX=/opt/igh-ethercat-diagnostics
-cmake --build build --parallel 4
-sudo cmake --install build
-```
-
-V1.1 不安装或配置 systemd 服务。
-
-## 运行
-
-主动读取 ESC 寄存器通常需要管理员权限。请从一个可写的运行目录启动：
+程序会在当前工作目录下面创建 `logs`，因此应从可写目录启动：
 
 ```bash
 mkdir -p "$HOME/igh-ethercat-diagnostics-runtime"
 cd "$HOME/igh-ethercat-diagnostics-runtime"
-sudo /usr/local/bin/igh-ethercat-diagnostics
+/你的仓库路径/build/igh-ethercat-diagnostics
 ```
 
-如果采集失败，请确认 root 用户也能找到 IgH 命令：
+如果当前用户无法打开 `/dev/EtherCAT0`，可把用户加入设备所属组并重新登录，或临时使用 root 运行探针。不要把设备节点改成所有用户可写。
 
 ```bash
-sudo sh -c 'command -v ethercat && ethercat master -m 0'
+sudo usermod -aG ethercat "$USER"
+# 退出 SSH 并重新连接，然后用 id 检查组是否生效
+
+/你的仓库路径/build/esc-diagnostic-probe 0 3
 ```
 
-独立寄存器探针的参数依次是 Master Index 和 Slave Position：
+## 安装和 systemd 部署
 
 ```bash
-sudo /usr/local/bin/esc-diagnostic-probe 0 3
+sudo cmake --install build
+sudo systemctl daemon-reload
+sudo systemctl enable igh-ethercat-diagnostics.service
+sudo systemctl enable igh-ethercat-diagnostics-web.service
+sudo systemctl restart igh-ethercat-diagnostics.service
+sudo systemctl restart igh-ethercat-diagnostics-web.service
+systemctl status igh-ethercat-diagnostics.service --no-pager
+systemctl status igh-ethercat-diagnostics-web.service --no-pager
+sudo journalctl -u igh-ethercat-diagnostics.service -f
 ```
 
-也可以不安装，直接运行 `build/` 中的两个程序。
+这里显式执行 `restart` 是为了保证升级生效：`enable --now` 不会重新加载已经运行的旧进程。重启后，新安装的诊断程序和 Web 服务才会真正投入运行。
 
-## 故障和恢复示例
+默认把程序安装到 `/usr/local/bin`，页面资源安装到 `/usr/local/share/igh-ethercat-diagnostics/web`，服务文件安装到 `/usr/local/lib/systemd/system`。诊断服务以 root 写入 `/var/lib/igh-ethercat-diagnostics/logs`，Web 服务以 `nobody:nogroup` 只读访问。
 
-4个从站在线时，拔掉 Slave 1 后面的网线可能产生：
+在受信任测试局域网的电脑打开 `http://<RK3588-IP>:8080`。板卡运行 `hostname -I` 可以查看地址。
 
-```text
-[EVENT] ... type=SLAVE_COUNT_CHANGED old=4 new=2 ...
-[EVENT] ... type=SLAVE_LOST slave=2 ...
-[EVENT] ... type=SLAVE_LOST slave=3 ...
-[ACTIVE_DIAG] master=0 boundary=Slave1<->Slave2 status=success ...
+随工程提供的服务依赖 `ethercat.service`。如果板卡上的 IgH 服务名称不同，请修改 [`packaging/systemd/igh-ethercat-diagnostics.service`](packaging/systemd/igh-ethercat-diagnostics.service)，重新编译安装，再执行 `systemctl daemon-reload`。
+
+常用管理命令：
+
+```bash
+sudo systemctl restart igh-ethercat-diagnostics.service
+sudo systemctl restart igh-ethercat-diagnostics-web.service
+sudo systemctl stop igh-ethercat-diagnostics.service
+sudo systemctl disable igh-ethercat-diagnostics.service
 ```
 
-重新连接网线并恢复完整拓扑后：
-
-```text
-[RECOVERY] ... description="EtherCAT network recovered" slaves=2->4 duration=3.200s recovered_positions=2,3
-```
-
-只有部分从站返回时不会生成 `[RECOVERY]`；网络持续正常也不会重复输出恢复事件。
-
-## 运行文件
-
-程序在当前工作目录下创建 `logs`：
+## 运行数据
 
 ```text
 logs/
+├── latest_status.json
+├── events.jsonl
 └── fault_<timestamp_ms>.jsonl
 ```
 
-每一行都是一个 JSON 对象，记录网络快照或触发事件。由于推荐使用 root 运行，生成的文件可能归 root 所有。
+`latest_status.json` 可以反复读取。持续消费 `events.jsonl` 时，应按“一行一个 JSON 对象”解析，并保存上次读到的文件偏移量。
 
-## 常见问题
+## 当前边界
 
-### `ethercat: not found`
+- 默认根因权重是基线值，不同拓扑和从站应使用真实故障样本继续标定。
+- 监控周期和部分运行参数目前在程序中定义。
+- ioctl ABI 必须与板卡安装的 IgH 版本一致。
+- Web UI 不内置登录和 HTTPS。8080 端口只应开放在受信任局域网；跨不可信网络访问时应使用带认证和 HTTPS 的反向代理。
+- 页面只读，不会复位从站、切换 AL 状态或自动修复网络。
 
-请安装 IgH 命令行工具或将其目录加入运行用户的 `PATH`，并分别检查普通用户和 root：
+发布自己的仓库或版本前，请检查[发布清单](docs/RELEASE_CHECKLIST.md)。
 
-```bash
-command -v ethercat
-sudo sh -c 'command -v ethercat'
-```
+## 许可证
 
-### 状态采集正常，但 `reg_read` 失败
-
-请使用 `sudo` 启动完整监控程序。只对探针使用 `sudo`，不会给已经以普通用户运行的监控程序增加权限。
-
-### 显示 `No tests were found`
-
-请在生成的 build 目录中运行 CTest：
-
-```bash
-cd build
-ctest --output-on-failure
-```
-
-### 从站数量错误或为空
-
-请比较 IgH 原始输出：
-
-```bash
-ethercat master -m 0
-ethercat slaves -m 0
-```
-
-解析器面向本版本实机验证所使用的 IgH CLI 标准英文输出格式。
-
-## 工程结构
-
-```text
-apps/       可执行程序入口
-include/    按职责分类的公共 C++ 头文件
-src/        监控、检测、记录、ESC 和诊断实现
-tests/      单元测试及集成风格的可执行测试
-docs/       双语架构说明
-```
-
-## 后续规划
-
-- V1.2：配置文件和 systemd 部署。
-- V2.0：使用 ioctl 代替 shell 命令。
-- V2.1：端口 CRC 和 Lost Link 计数器。
-- V2.2：自动根因分析。
-- V3.0：Web UI 和外部系统集成。
-
-## 参与贡献
-
-请保持修改范围清晰，使用 `-Wall -Wextra -Wpedantic` 编译，并为可观察行为增加测试。提交 Pull Request 前请运行完整 CTest。
-
-## 开源协议
-
-Copyright (c) 2026 Victor-Jiaxin Wang。本项目使用 [MIT License](LICENSE)。
+MIT License。Copyright (c) 2026 Victor-Jiaxin Wang。

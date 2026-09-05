@@ -515,6 +515,45 @@ void testSavesCompleteSnapshotInformation()
     std::filesystem::remove(file_path);
 }
 
+void testSavesPortErrorEventWithPortPosition()
+{
+    Blackbox blackbox(1, 1);
+    blackbox.push(makeDetailedSnapshot(1000, true, 4));
+
+    blackbox.trigger(FaultEvent{
+        2000,
+        EventType::PORT_LOST_LINK_INCREASED,
+        3,
+        1,
+        2,
+        "Slave 3 port 0 lost link counter increased",
+        0});
+    blackbox.push(makeDetailedSnapshot(2000, true, 4));
+
+    const std::filesystem::path file_path =
+        std::filesystem::temp_directory_path() /
+        "ethercat_diag_port_event_test.jsonl";
+    std::filesystem::remove(file_path);
+    assert(blackbox.saveToFile(file_path.string()));
+
+    std::ifstream input(file_path);
+    std::string line;
+    std::string last_line;
+    while (std::getline(input, line))
+    {
+        last_line = line;
+    }
+
+    assert(last_line.find(
+        "\"type\":\"PORT_LOST_LINK_INCREASED\"") !=
+        std::string::npos);
+    assert(last_line.find("\"port_position\":0") !=
+           std::string::npos);
+
+    input.close();
+    std::filesystem::remove(file_path);
+}
+
 int main()
 {
     testKeepsNewestSnapshotsWithinCapacity();
@@ -527,6 +566,7 @@ int main()
     testRefusesToSaveBeforeCaptureCompletes();
     testSavesTriggerEventAfterSnapshots();
     testSavesCompleteSnapshotInformation();
+    testSavesPortErrorEventWithPortPosition();
 
     std::cout
         << "All Blackbox tests passed\n";

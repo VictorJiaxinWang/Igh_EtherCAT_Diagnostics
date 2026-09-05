@@ -1,0 +1,26 @@
+[Unit]
+Description=IgH EtherCAT Diagnostics Web UI
+Requires=igh-ethercat-diagnostics.service
+After=igh-ethercat-diagnostics.service network.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+ExecStart=/usr/local/bin/igh-ethercat-diagnostics-web --bind 0.0.0.0 --port 8080 --data-dir /var/lib/igh-ethercat-diagnostics/logs --assets-dir /usr/local/share/igh-ethercat-diagnostics/web
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

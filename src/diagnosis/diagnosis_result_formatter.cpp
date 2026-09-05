@@ -4,6 +4,7 @@
 #include "ethercat_diag/esc/al_status_decoder.h"
 #include "ethercat_diag/esc/diagnostic_formatter.h"
 #include "ethercat_diag/esc/dl_status_decoder.h"
+#include "ethercat_diag/esc/port_error_formatter.h"
 
 #include <cstdint>
 #include <iomanip>
@@ -166,6 +167,27 @@ std::string formatDiagnosisResult(
         output,
         sample.al_status_code,
         al_status);
+
+    if (result.port_errors)
+    {
+        output
+            << '\n'
+            << "Port Error Counters [0x0300..0x0313]: ";
+
+        if (!result.port_errors->success)
+        {
+            output
+                << "ERROR: "
+                << result.port_errors->error;
+        }
+        else
+        {
+            output
+                << "raw cumulative values\n"
+                << formatPortErrorCounters(
+                       result.port_errors->counters);
+        }
+    }
 
     return output.str();
 }

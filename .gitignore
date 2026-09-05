@@ -1,15 +1,30 @@
-/build/
-/build-*/
-/logs/
-/Testing/
-CMakeCache.txt
+# CMake and compiler output
+build/
+build-*/
+cmake-build-*/
 CMakeFiles/
+CMakeCache.txt
 cmake_install.cmake
 CTestTestfile.cmake
 Makefile
 *.o
 *.a
 *.so
-*.log
+*.out
+
+# Tests and runtime data
+Testing/
+logs/
+runtime-test/
+*.tmp
+fault_*.jsonl
+latest_status.json
+events.jsonl
+
+# Editors and operating systems
 .vscode/
 .idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db

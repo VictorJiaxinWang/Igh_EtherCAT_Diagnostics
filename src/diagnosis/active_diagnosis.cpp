@@ -9,11 +9,24 @@ bool DiagResult::attempted() const
 
 bool DiagResult::success() const
 {
-    return sample.has_value() && sample->complete();
+    return sample.has_value() &&
+        sample->complete() &&
+        (!port_errors.has_value() || port_errors->success);
 }
 
 ActiveDiagnosis::ActiveDiagnosis(int master_index)
-    : master_index_(master_index)
+    : master_index_(master_index),
+      port_error_reader_(PortErrorReader{})
+{
+}
+
+ActiveDiagnosis::ActiveDiagnosis(
+    int master_index,
+    EscDiagnosticReader reader,
+    PortErrorReader port_error_reader)
+    : master_index_(master_index),
+      reader_(std::move(reader)),
+      port_error_reader_(std::move(port_error_reader))
 {
 }
 
@@ -56,6 +69,12 @@ DiagResult ActiveDiagnosis::run(
         master_index_,
         boundary.last_alive_slave);
 
+    if (port_error_reader_)
+    {
+        result.port_errors = port_error_reader_->read(
+            master_index_,
+            boundary.last_alive_slave);
+    }
+
     return result;
 }
-

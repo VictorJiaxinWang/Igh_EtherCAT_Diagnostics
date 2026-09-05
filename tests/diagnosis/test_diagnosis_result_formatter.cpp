@@ -150,6 +150,30 @@ void testFormatsMasterToFirstSlaveBoundary()
         "first slave loss names the master-side boundary");
 }
 
+void testFormatsPortErrorEvidence()
+{
+    DiagResult result;
+    result.master_index = 0;
+    result.boundary = {2, 3, true};
+    result.sample = makeCompleteSample();
+
+    PortErrorCounters counters;
+    counters.ports[0] = {1U, 2U, 3U, 4U};
+    result.port_errors = PortErrorReadResult{true, counters, {}};
+
+    const std::string report = formatDiagnosisResult(result);
+
+    requireContains(
+        report,
+        "Port Error Counters [0x0300..0x0313]",
+        "active diagnosis labels port counter evidence");
+    requireContains(
+        report,
+        "Port 0: invalid_frame=1, rx_error=2, "
+        "forwarded_rx_error=3, lost_link=4",
+        "active diagnosis formats decoded port counters");
+}
+
 void testInvalidBoundaryCoordinatesAreUnavailable()
 {
     const FaultBoundary invalid_boundaries[] = {
@@ -180,6 +204,7 @@ int main()
     testFormatsRejectedDiagnosis();
     testFormatsPartialDiagnosisWithoutDiscardingGoodData();
     testFormatsMasterToFirstSlaveBoundary();
+    testFormatsPortErrorEvidence();
     testInvalidBoundaryCoordinatesAreUnavailable();
 
     std::cout

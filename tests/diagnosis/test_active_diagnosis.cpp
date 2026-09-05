@@ -164,6 +164,42 @@ void testRejectsNegativeMasterIndex()
     require(commands.empty(), "negative master executes no command");
 }
 
+void testReadsPortErrorsFromTheLastAliveSlave()
+{
+    std::vector<std::string> commands;
+    int port_read_master = -1;
+    int port_read_slave = -1;
+
+    PortErrorReader port_reader(
+        [&](int master_index, int slave_position,
+            std::uint16_t, std::size_t) {
+            port_read_master = master_index;
+            port_read_slave = slave_position;
+            return RegisterBlockReadResult{
+                true,
+                std::vector<std::uint8_t>(20U, 0U),
+                {}};
+        });
+
+    ActiveDiagnosis diagnosis(
+        0,
+        makeSuccessfulReader(commands),
+        std::move(port_reader));
+
+    const DiagResult result = diagnosis.run({3, 4, true});
+
+    require(result.port_errors.has_value(),
+            "active diagnosis attempts port error read");
+    require(result.port_errors->success,
+            "successful port error read is preserved");
+    require(port_read_master == 0,
+            "port error read uses configured master");
+    require(port_read_slave == 3,
+            "port error read targets last alive slave");
+    require(result.success(),
+            "complete ESC and port samples succeed");
+}
+
 } // namespace
 
 int main()
@@ -174,6 +210,7 @@ int main()
     testPreservesPartialRegisterFailure();
     testUsesConfiguredMasterIndex();
     testRejectsNegativeMasterIndex();
+    testReadsPortErrorsFromTheLastAliveSlave();
 
     std::cout << "All active diagnosis tests passed\n";
     return 0;

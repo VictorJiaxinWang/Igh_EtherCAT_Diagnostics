@@ -1,6 +1,10 @@
 #pragma once
 
 #include "ethercat_diag/esc/esc_register_reader.h"
+#include "ethercat_diag/esc/ioctl_esc_register_reader.h"
+
+#include <cstdint>
+#include <functional>
 
 struct EscDiagnosticSample
 {
@@ -17,17 +21,26 @@ struct EscDiagnosticSample
 class EscDiagnosticReader
 {
 public:
+    using RegisterReadFunction = std::function<RegisterReadResult(
+        int,
+        int,
+        std::uint16_t)>;
+
     EscDiagnosticReader();
 
     explicit EscDiagnosticReader(
-        EscRegisterReader register_reader
-    );
+        EscRegisterReader register_reader);
+
+    explicit EscDiagnosticReader(
+        IoctlEscRegisterReader register_reader);
+
+    explicit EscDiagnosticReader(
+        RegisterReadFunction read_register);
 
     EscDiagnosticSample read(
         int master_index,
-        int slave_position
-    ) const;
+        int slave_position) const;
 
 private:
-    EscRegisterReader register_reader_;
+    RegisterReadFunction read_register_;
 };

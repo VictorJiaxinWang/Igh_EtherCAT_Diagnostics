@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>EtherCAT 网络诊断</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">RK3588 · IgH EtherCAT</p>
+      <h1>网络诊断控制台</h1>
+    </div>
+    <div id="connection-state" class="connection-pill" aria-live="polite">
+      <span class="pulse-dot"></span>
+      正在连接诊断服务
+    </div>
+  </header>
+
+  <main>
+    <section id="overall-status" class="status-hero state-unknown" aria-live="polite">
+      <div class="status-mark" aria-hidden="true">?</div>
+      <div class="status-copy">
+        <p class="section-label">当前结论</p>
+        <h2 id="status-title">等待诊断数据</h2>
+        <p id="status-summary">正在读取 RK3588 上的 EtherCAT 网络状态。</p>
+      </div>
+      <div class="status-time">
+        <span>数据更新时间</span>
+        <strong id="updated-time">--</strong>
+        <small id="refresh-time">尚未成功刷新</small>
+      </div>
+    </section>
+
+    <section class="metric-grid" aria-label="Master 摘要">
+      <article class="metric-card">
+        <span>Master 链路</span>
+        <strong id="master-link">--</strong>
+        <small id="master-index">Master --</small>
+      </article>
+      <article class="metric-card">
+        <span>在线从站</span>
+        <strong id="slave-count">--</strong>
+        <small>当前可响应数量</small>
+      </article>
+      <article class="metric-card">
+        <span>Master 阶段</span>
+        <strong id="master-phase">--</strong>
+        <small id="master-active">Active --</small>
+      </article>
+      <article class="metric-card">
+        <span>最近故障</span>
+        <strong id="last-fault">无记录</strong>
+        <small>以板卡时间为准</small>
+      </article>
+    </section>
+
+    <section class="panel topology-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="section-label">故障位置</p>
+          <h2>EtherCAT 拓扑</h2>
+        </div>
+        <p id="topology-hint" class="panel-note">从 Master 向右依次经过所有从站</p>
+      </div>
+      <div id="topology" class="topology" role="list" aria-label="EtherCAT 从站拓扑">
+        <p class="empty-state">等待网络快照</p>
+      </div>
+      <div class="legend" aria-label="颜色说明">
+        <span><i class="legend-dot healthy"></i>正常</span>
+        <span><i class="legend-dot warning"></i>状态异常</span>
+        <span><i class="legend-dot fault"></i>故障</span>
+        <span><i class="legend-dot offline"></i>离线</span>
+      </div>
+    </section>
+
+    <div class="content-grid">
+      <section id="diagnosis" class="panel diagnosis-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">为什么发生</p>
+            <h2>诊断结论</h2>
+          </div>
+          <span id="certainty" class="tag neutral">等待分析</span>
+        </div>
+        <h3 id="cause-title">暂无故障根因</h3>
+        <p id="cause-description" class="cause-description">网络发生故障后，这里会用现场语言解释最可能的原因。</p>
+        <div class="confidence-row">
+          <span>诊断置信度</span>
+          <strong id="confidence-text">--</strong>
+        </div>
+        <div class="confidence-track" aria-hidden="true">
+          <div id="confidence-bar" class="confidence-bar"></div>
+        </div>
+        <div class="evidence-block">
+          <h4>判断依据</h4>
+          <ul id="evidence-list"><li>等待诊断证据</li></ul>
+        </div>
+      </section>
+
+      <section class="panel recovery-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">接下来怎么做</p>
+            <h2>恢复步骤</h2>
+          </div>
+        </div>
+        <ol id="recovery-steps" class="recovery-steps">
+          <li>等待诊断数据后再开始操作。</li>
+        </ol>
+        <div id="recovery-check" class="recovery-check">
+          恢复确认：顶部变绿、从站数量恢复、红色断点消失。
+        </div>
+      </section>
+    </div>
+
+    <section class="panel events-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="section-label">发生过什么</p>
+          <h2>最近事件</h2>
+        </div>
+        <span id="event-count" class="tag neutral">0 条</span>
+      </div>
+      <div id="event-timeline" class="timeline" aria-live="polite">
+        <p class="empty-state">暂时没有故障或恢复事件</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>IgH EtherCAT Diagnostics V3.0</span>
+    <span>只读诊断 · 不控制设备 · 不替代安全措施</span>
+  </footer>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

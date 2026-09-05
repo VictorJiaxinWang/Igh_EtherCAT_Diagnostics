@@ -1,9 +1,12 @@
 #include "ethercat_diag/esc/esc_diagnostic_reader.h"
+#include "ethercat_diag/esc/ioctl_esc_register_reader.h"
 #include "ethercat_diag/cli/probe_options.h"
 #include "ethercat_diag/esc/al_status_decoder.h"
 #include "ethercat_diag/esc/dl_status_decoder.h"
 #include "ethercat_diag/esc/al_status_code_decoder.h"
 #include "ethercat_diag/esc/diagnostic_formatter.h"
+#include "ethercat_diag/esc/port_error_decoder.h"
+#include "ethercat_diag/esc/port_error_formatter.h"
 
 #include <cstdint>
 #include <iomanip>
@@ -71,7 +74,8 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    EscDiagnosticReader reader;
+    IoctlEscRegisterReader register_reader;
+    EscDiagnosticReader reader(register_reader);
 
     const EscDiagnosticSample sample =
         reader.read(
@@ -133,5 +137,46 @@ int main(int argc, char* argv[])
             << '\n';
     }
 
-    return sample.complete() ? 0 : 1;
+    const RegisterBlockReadResult port_error_block =
+        register_reader.readBlock(
+            options->master_index,
+            options->slave_position,
+            esc_port_error_base_address,
+            esc_port_error_block_size);
+
+    bool port_errors_complete = false;
+
+    std::cout
+        << "Port Error Counters [0x0300..0x0313]: ";
+
+    if (!port_error_block.success)
+    {
+        std::cout
+            << "ERROR: "
+            << port_error_block.error
+            << '\n';
+    }
+    else
+    {
+        const PortErrorDecodeResult decoded =
+            decodePortErrorCounters(port_error_block.bytes);
+
+        if (!decoded.success)
+        {
+            std::cout
+                << "ERROR: "
+                << decoded.error
+                << '\n';
+        }
+        else
+        {
+            std::cout
+                << "raw cumulative values\n"
+                << formatPortErrorCounters(decoded.counters)
+                << '\n';
+            port_errors_complete = true;
+        }
+    }
+
+    return sample.complete() && port_errors_complete ? 0 : 1;
 }

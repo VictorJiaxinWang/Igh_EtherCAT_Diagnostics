@@ -2,108 +2,72 @@
 
 [简体中文](README.zh-CN.md) | English
 
-A lightweight, independent EtherCAT monitoring and fault-diagnosis tool for systems using the [IgH EtherCAT Master](https://etherlab.org/en/ethercat/).
+An independent EtherCAT diagnostic daemon for systems built on the IgH EtherCAT Master.
 
-Version: **v1.1.0**
+Version: **v3.0.0**  
+Author: **Victor-Jiaxin Wang**  
+License: **MIT**
 
-## Overview
+## What it does
 
-IgH EtherCAT Diagnostics continuously samples an IgH EtherCAT network, turns command output into structured C++ snapshots, detects topology and state changes, preserves evidence around a fault, actively reads key ESC registers at the suspected boundary, and reports when the network has recovered.
+The daemon observes an existing IgH EtherCAT network without joining the PDO real-time loop or requesting ownership of the Master. It samples the network at 1 Hz, detects topology and AL-state changes, preserves snapshots around a fault, locates the likely break boundary, reads ESC diagnostic registers, tracks port-error deltas, reports recovery, and produces an explainable root-cause assessment.
 
-It runs beside an existing EtherCAT application. It does not control process data, force slave states, restart the master, or repair the network automatically.
+It publishes two files and presents them through an operator-oriented Web UI:
 
-## Why This Project
+- `logs/latest_status.json`: the current status, replaced atomically.
+- `logs/events.jsonl`: append-only fault, recovery, and root-cause events.
 
-An EtherCAT application often tells you that communication failed, but not where the chain broke or what the last reachable slave reported. This project adds a small diagnostic observer that can answer:
+The standalone `igh-ethercat-diagnostics-web` process serves a read-only dashboard at port 8080. Operators see network health, a slave-chain topology with the likely break highlighted, a plain-language root cause, confidence, evidence, recovery steps, and recent events. Keeping it separate means Web traffic cannot block EtherCAT collection.
 
-- When did the link or topology change?
-- Which slave positions disappeared?
-- Where is the likely boundary between reachable and lost slaves?
-- What did the boundary ESC report immediately after the fault?
-- What network snapshots existed before and after the event?
-- When did the complete network return, and how long was it unavailable?
+## When to use it
 
-## Features
+- Commissioning and troubleshooting systems that use IgH EtherCAT Master.
+- Capturing intermittent cable, connector, power, downstream-slave, and AL-state failures.
+- Adding diagnostics beside an existing motion-control application without changing its real-time code.
 
-- 1 Hz monitoring of Master 0 through `ethercat master` and `ethercat slaves`.
-- Unified `NetworkSnapshot`, `MasterSnapshot`, and `SlaveSnapshot` models.
-- Link, slave-count, lost-slave, and AL-state change events.
-- Fault-boundary location from the last healthy and current topology.
-- A rolling black box with up to 30 recent snapshots plus 10 post-trigger snapshots.
-- JSONL fault files that are easy to process with Python, scripts, or later Web tooling.
-- Burst reads of ESC registers `0x0110`, `0x0130`, and `0x0134`.
-- Ten-second Cooldown to limit repeated active register reads.
-- One-shot recovery events with fault duration and restored slave positions.
-- Graceful shutdown on `SIGINT` and `SIGTERM`.
-- Standalone `esc-diagnostic-probe` utility.
-- 22 automated tests, including a guard that keeps assertions enabled in Release builds.
+This software is a diagnostic aid, not a safety function and not an automatic repair system.
 
-## Suitable Use Cases
+## Highlights
 
-- Commissioning and troubleshooting IgH-based EtherCAT systems.
-- ARM64 edge computers and development boards such as RK3588.
-- Linux controllers where a lightweight diagnostic side process is preferred over a database-backed platform.
-- Capturing intermittent cable, connector, power, or downstream-slave failures.
-- A reference implementation for learning modern C++ around a real industrial communication problem.
-
-## Current Limitations
-
-Version 1.1 intentionally stays small:
-
-- Linux and the IgH `ethercat` command are required.
-- Data collection still launches shell commands; direct ioctl access is future work.
-- Master index is fixed to `0` in the monitor application.
-- Sampling interval is fixed to 1 second.
-- Active-diagnosis Cooldown is fixed to 10 seconds.
-- Runtime files are written below `./logs`, relative to the process working directory.
-- The black box saves the first triggered capture of each process run. Restart the program to arm a new capture.
-- Recovery events are printed to the terminal; they are not appended to the saved fault JSONL in v1.1.
-- No configuration-file parser, systemd service, automatic repair, root-cause engine, or Web UI is included.
-- This is a diagnostic aid, not a safety function or safety-certified component.
-
-## How It Works
-
-Every second, the program reads master and slave status and creates a `NetworkSnapshot`. `EventDetector` compares consecutive snapshots. A lost-slave event starts one active diagnostic Burst: `BoundaryLocator` finds the last reachable slave and `ActiveDiagnosis` reads its ESC status registers. The black box keeps surrounding network history. `RecoveryTracker` keeps the pre-fault topology as its baseline and emits exactly one recovery event only after the link and complete topology return.
-
-- **Burst** controls how much ESC data is read for one fault.
-- **Cooldown** controls how often expensive active reads may run.
-- **RecoveryTracker** decides when a fault episode is complete.
+- Direct IgH ioctl production backend; no shell process in the monitoring path.
+- Unified `NetworkSnapshot` model and injectable acquisition interfaces.
+- Lost-slave, state-change, link, recovery, and port-error events.
+- Rolling history and JSONL black-box captures.
+- Active ESC reads with Burst and Cooldown control.
+- Fault-boundary location and evidence-based root-cause ranking.
+- Atomic Web status output and append-only event output.
+- Zero-dependency C++ HTTP service and responsive Chinese operator dashboard.
+- systemd unit, graceful `SIGINT`/`SIGTERM` shutdown, and automated tests.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    CLI[IgH ethercat CLI] --> CR[CommandRunner]
-    CR --> ER[EthercatReader]
-    ER --> NS[NetworkSnapshot]
-    NS --> ED[EventDetector]
-    ED --> FE[FaultEvent]
-    NS --> BB[Blackbox]
-    FE --> BB
-    NS --> RT[RecoveryTracker]
-    FE --> RT
-    RT --> RE[RecoveryEvent]
-    FE --> DC[DiagnosisCoordinator]
-    NS --> DC
-    DC --> BL[BoundaryLocator]
-    DC --> AD[ActiveDiagnosis]
-    AD --> ESC[ESC 0x0110 / 0x0130 / 0x0134]
+```text
+/dev/EtherCAT0 -> ioctl backend -> NetworkSnapshot -> 1 Hz Monitor
+                                             |
+        +--------------------+---------------+-------------------+
+        |                    |                                   |
+   event/recovery       rolling history                 port-error deltas
+        |                    |                                   |
+        +------------ DiagnosisCoordinator ---------------------+
+                              |
+              boundary + active ESC + root cause
+                              |
+             black box + latest_status + events
+                              |
+                              v
+                  C++ Web service -> browser
 ```
 
-See [Architecture](docs/ARCHITECTURE.md) for module responsibilities, object relationships, state machines, error behavior, and extension points.
+Detailed responsibilities and data flow are documented in [Software Architecture](docs/ARCHITECTURE.md). The Web output contract is in [Web Data Schema](docs/WEB_DATA_SCHEMA.md).
 
 ## Prerequisites
 
-- Linux.
-- A working IgH EtherCAT Master installation.
-- The IgH `ethercat` CLI available through `PATH`.
-- A C++17 compiler.
-- CMake 3.18 or newer.
-- Make or another CMake-supported build tool.
+- Linux and a working IgH EtherCAT Master installation.
+- A readable IgH device node, normally `/dev/EtherCAT0`.
+- C++17 compiler, CMake 3.18 or newer, and Make or Ninja.
+- The vendored IgH 1.6.3 ABI headers must match the running Master ABI. If your installation differs, replace the headers and run the tests before using the daemon.
 
-## Verified Reference Environment
-
-v1.1.0 was built and tested with the following environment. This is a tested reference, not a platform restriction. Other Linux boards and architectures can be used when the prerequisites above are satisfied and the IgH CLI output is compatible.
+### Verified reference environment
 
 | Component | Verified value |
 | --- | --- |
@@ -111,206 +75,116 @@ v1.1.0 was built and tested with the following environment. This is a tested ref
 | Operating system | Debian GNU/Linux 11 (bullseye) |
 | Architecture | AArch64 (`aarch64`) |
 | Kernel | Linux 5.10.161 |
-| CPU | 8-core ARM Cortex-A55, Little Endian |
-| IgH EtherCAT Master | 1.6.3 |
-| EtherCAT CLI | `/usr/bin/ethercat` |
-| EtherCAT kernel modules | `ec_master`, `ec_generic` |
-| C++ compiler | GCC/G++ 10.2.1 |
+| Compiler | GCC/G++ 10.2.1 |
 | CMake | 3.18.4 |
-| GNU Make | 4.3 |
+| IgH EtherCAT Master | 1.6.3, runtime ioctl magic 32 |
+| Kernel modules | `ec_master`, `ec_generic` |
+| Device node | `/dev/EtherCAT0`, group `ethercat`, mode `0660` |
 
-Run the following commands to record and compare your environment before building:
+This is a reference, not a platform restriction. Other Linux boards are suitable when the architecture, IgH ABI, and permissions are correct.
+
+## Build and test
 
 ```bash
-cat /proc/device-tree/model; echo
-cat /etc/os-release
-uname -srmo
-lscpu | grep -E 'Architecture|CPU\(s\)|Model name|Byte Order'
-g++ --version | head -n 1
-cmake --version | head -n 1
-make --version | head -n 1
-command -v ethercat
-ethercat version
-lsmod | grep -E '^(ec_master|ec_generic)'
+git clone <your-repository-url>
+cd igh-ethercat-diagnostics
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel 4
+cd build && ctest --output-on-failure
+cd ..
+```
+
+Main executables:
+
+- `build/igh-ethercat-diagnostics`: continuous diagnostic daemon.
+- `build/igh-ethercat-diagnostics-web`: read-only HTTP API and dashboard server.
+- `build/esc-diagnostic-probe`: one-shot ESC register probe.
+- `build/root_cause_matrix_demo`: root-cause calibration matrix.
+- `build/snapshot_backend_compare`: ioctl/legacy-shell migration checker.
+
+Unit tests use injected data and normally need no EtherCAT hardware. Hardware probes require the Master and device node.
+
+## Run
+
+First confirm the Master and permissions:
+
+```bash
+systemctl status ethercat --no-pager
+ls -l /dev/EtherCAT0
 ethercat master -m 0
 ethercat slaves -m 0
 ```
 
-The exact version strings may differ. However, `ethercat master -m 0` and `ethercat slaves -m 0` must work before running this project. If they fail, fix the IgH installation, driver modules, permissions, or master configuration first.
-
-## Quick Start
-
-Download or clone the repository, then enter its directory:
-
-```bash
-cd igh-ethercat-diagnostics
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 4
-cd build
-ctest --output-on-failure
-cd ..
-sudo ./build/igh-ethercat-diagnostics
-```
-
-Press `Ctrl+C` to stop cleanly.
-
-## Build and Test
-
-Debug build:
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --parallel 4
-```
-
-Run all tests:
-
-```bash
-cd build
-ctest --output-on-failure
-cd ..
-```
-
-Entering the build directory keeps the test command compatible with CMake/CTest 3.18.
-
-## Install
-
-Install both executables into the default prefix, normally `/usr/local/bin`:
-
-```bash
-sudo cmake --install build
-```
-
-Installed commands:
-
-```text
-/usr/local/bin/igh-ethercat-diagnostics
-/usr/local/bin/esc-diagnostic-probe
-```
-
-Use a different prefix when required:
-
-```bash
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX=/opt/igh-ethercat-diagnostics
-cmake --build build --parallel 4
-sudo cmake --install build
-```
-
-This v1.1 package does not install or configure a systemd service.
-
-## Run
-
-Active ESC register reads commonly require elevated privileges. Start the monitor from a writable working directory:
+Run from a writable directory because runtime data is stored below `./logs`:
 
 ```bash
 mkdir -p "$HOME/igh-ethercat-diagnostics-runtime"
 cd "$HOME/igh-ethercat-diagnostics-runtime"
-sudo /usr/local/bin/igh-ethercat-diagnostics
+/path/to/repository/build/igh-ethercat-diagnostics
 ```
 
-Confirm that root can locate the IgH CLI if status reads fail:
+If the current user cannot open `/dev/EtherCAT0`, add the user to the device's group and reconnect the login session, or run the probe as root. Avoid making the device world-writable.
 
 ```bash
-sudo sh -c 'command -v ethercat && ethercat master -m 0'
+sudo usermod -aG ethercat "$USER"
+# Log out and back in, then verify with: id
+
+/path/to/repository/build/esc-diagnostic-probe 0 3
 ```
 
-Run the standalone register probe with a master index and slave position:
+## Install and deploy with systemd
 
 ```bash
-sudo /usr/local/bin/esc-diagnostic-probe 0 3
+sudo cmake --install build
+sudo systemctl daemon-reload
+sudo systemctl enable igh-ethercat-diagnostics.service
+sudo systemctl enable igh-ethercat-diagnostics-web.service
+sudo systemctl restart igh-ethercat-diagnostics.service
+sudo systemctl restart igh-ethercat-diagnostics-web.service
+systemctl status igh-ethercat-diagnostics.service --no-pager
+systemctl status igh-ethercat-diagnostics-web.service --no-pager
+sudo journalctl -u igh-ethercat-diagnostics.service -f
 ```
 
-You can also run either executable directly from `build/` without installing it.
+The explicit `restart` commands are intentional: `enable --now` does not reload an already-running process after an upgrade. Restarting ensures the newly installed diagnostic binary and Web service are active.
 
-## Fault and Recovery Example
+The default install places binaries in `/usr/local/bin`, Web assets in `/usr/local/share/igh-ethercat-diagnostics/web`, and units in `/usr/local/lib/systemd/system`. The diagnostic service runs as root and writes under `/var/lib/igh-ethercat-diagnostics/logs`; the Web service runs as `nobody:nogroup` and only reads those files.
 
-With four slaves online, disconnecting the cable after Slave 1 may produce events like:
+Open `http://<RK3588-IP>:8080` from a computer on the trusted test LAN. Use `hostname -I` on the board to find its address.
 
-```text
-[EVENT] ... type=SLAVE_COUNT_CHANGED old=4 new=2 ...
-[EVENT] ... type=SLAVE_LOST slave=2 ...
-[EVENT] ... type=SLAVE_LOST slave=3 ...
-[ACTIVE_DIAG] master=0 boundary=Slave1<->Slave2 status=success ...
+The supplied unit depends on `ethercat.service`. If your IgH service has another unit name, edit [`packaging/systemd/igh-ethercat-diagnostics.service`](packaging/systemd/igh-ethercat-diagnostics.service), then rebuild/install and run `systemctl daemon-reload`.
+
+Common service commands:
+
+```bash
+sudo systemctl restart igh-ethercat-diagnostics.service
+sudo systemctl restart igh-ethercat-diagnostics-web.service
+sudo systemctl stop igh-ethercat-diagnostics.service
+sudo systemctl disable igh-ethercat-diagnostics.service
 ```
 
-After reconnecting the cable and restoring the full topology:
-
-```text
-[RECOVERY] ... description="EtherCAT network recovered" slaves=2->4 duration=3.200s recovered_positions=2,3
-```
-
-A partial return does not generate `[RECOVERY]`. Continued healthy samples do not duplicate it.
-
-## Runtime Files
-
-The application creates a `logs` directory below its current working directory:
+## Runtime data
 
 ```text
 logs/
+├── latest_status.json
+├── events.jsonl
 └── fault_<timestamp_ms>.jsonl
 ```
 
-Each line is a JSON object describing a network snapshot or the trigger event. Because the recommended command runs as root, generated files may be owned by root.
+`latest_status.json` may be read repeatedly. For `events.jsonl`, process one JSON object per line and persist your last consumed offset when building a long-running integration.
 
-## Troubleshooting
+## Known boundaries
 
-### `ethercat: not found`
+- Default root-cause weights are a baseline and should be calibrated with real fault samples from each topology.
+- The monitor interval and operational defaults are currently compiled into the application.
+- The ioctl ABI must match the installed IgH version.
+- The Web UI has no built-in login or TLS. Keep port 8080 on a trusted LAN, or place it behind an authenticated HTTPS reverse proxy.
+- The Web UI is read-only and does not reset slaves, change AL states, or repair the network automatically.
 
-Install the IgH command-line tool or add its directory to the service user's `PATH`. Check both the current user and root:
-
-```bash
-command -v ethercat
-sudo sh -c 'command -v ethercat'
-```
-
-### Status works, but `reg_read` fails
-
-Run the complete monitor with `sudo`. Starting only the probe with `sudo` does not grant privileges to an already-running unprivileged monitor.
-
-### `No tests were found`
-
-Run CTest from the generated build directory:
-
-```bash
-cd build
-ctest --output-on-failure
-```
-
-### Wrong or empty slave count
-
-Compare the raw IgH output:
-
-```bash
-ethercat master -m 0
-ethercat slaves -m 0
-```
-
-The parser expects the normal English output format of the IgH CLI used by the tested release.
-
-## Project Layout
-
-```text
-apps/       Executable entry points
-include/    Public C++ headers grouped by responsibility
-src/        Implementations for monitoring, detection, recording, ESC and diagnosis
-tests/      Unit and integration-style executable tests
-docs/       Detailed bilingual architecture documentation
-```
-
-## Roadmap
-
-- V1.2: configuration and systemd deployment.
-- V2.0: replace shell commands with direct ioctl access.
-- V2.1: port CRC and Lost Link counters.
-- V2.2: automatic root-cause analysis.
-- V3.0: Web UI and external integrations.
-
-## Contributing
-
-Keep changes focused, compile with `-Wall -Wextra -Wpedantic`, and add tests for observable behavior. Run the complete CTest suite before opening a pull request.
+See [Release Checklist](docs/RELEASE_CHECKLIST.md) before publishing a fork or release.
 
 ## License
 
-Copyright (c) 2026 Victor-Jiaxin Wang. Released under the [MIT License](LICENSE).
+MIT License. Copyright (c) 2026 Victor-Jiaxin Wang.

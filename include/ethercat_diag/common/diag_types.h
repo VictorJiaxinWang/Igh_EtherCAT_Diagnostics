@@ -47,7 +47,11 @@ enum class EventType
     MASTER_LINK_UP,
     SLAVE_COUNT_CHANGED,
     SLAVE_LOST,
-    SLAVE_STATE_CHANGED
+    SLAVE_STATE_CHANGED,
+    PORT_INVALID_FRAME_INCREASED,
+    PORT_RX_ERROR_INCREASED,
+    PORT_FORWARDED_RX_ERROR_INCREASED,
+    PORT_LOST_LINK_INCREASED
 };
 
 struct FaultEvent
@@ -58,6 +62,7 @@ struct FaultEvent
     int old_value;
     int new_value;
     std::string description;
+    int port_position{-1};
 };
 
 struct RecoveryEvent

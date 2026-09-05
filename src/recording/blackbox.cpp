@@ -24,6 +24,18 @@ const char* eventTypeToString(EventType type)
 
     case EventType::SLAVE_STATE_CHANGED:
         return "SLAVE_STATE_CHANGED";
+
+    case EventType::PORT_INVALID_FRAME_INCREASED:
+        return "PORT_INVALID_FRAME_INCREASED";
+
+    case EventType::PORT_RX_ERROR_INCREASED:
+        return "PORT_RX_ERROR_INCREASED";
+
+    case EventType::PORT_FORWARDED_RX_ERROR_INCREASED:
+        return "PORT_FORWARDED_RX_ERROR_INCREASED";
+
+    case EventType::PORT_LOST_LINK_INCREASED:
+        return "PORT_LOST_LINK_INCREASED";
     }
 
     return "UNKNOWN_EVENT";
@@ -289,6 +301,16 @@ bool Blackbox::saveToFile(
             << eventTypeToString(event.type)
             << "\",\"slave_position\":"
             << event.slave_position
+            ;
+
+        if (event.port_position >= 0)
+        {
+            output
+                << ",\"port_position\":"
+                << event.port_position;
+        }
+
+        output
             << ",\"old_value\":"
             << event.old_value
             << ",\"new_value\":"
