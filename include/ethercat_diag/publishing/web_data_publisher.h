@@ -13,6 +13,16 @@ std::string makeLatestStatusJson(
     const std::optional<std::uint64_t>& last_fault_timestamp_ms,
     const std::optional<RootCauseReport>& root_cause);
 
+struct PublishedMasterStatus
+{
+    NetworkSnapshot snapshot;
+    std::optional<std::uint64_t> last_fault_timestamp_ms;
+    std::optional<RootCauseReport> root_cause;
+};
+
+std::string makeMultiMasterStatusJson(
+    const std::vector<PublishedMasterStatus>& masters);
+
 class WebDataPublisher
 {
 public:
@@ -24,6 +34,10 @@ public:
         const std::optional<RootCauseReport>& root_cause,
         std::string& error) const;
 
+    bool publishStatus(
+        const std::vector<PublishedMasterStatus>& masters,
+        std::string& error) const;
+
     bool appendFaultEvents(
         const std::vector<FaultEvent>& events,
         std::string& error) const;
@@ -31,8 +45,16 @@ public:
     bool appendRecovery(
         const RecoveryEvent& recovery,
         std::string& error) const;
+    bool appendRecovery(
+        int master_index,
+        const RecoveryEvent& recovery,
+        std::string& error) const;
 
     bool appendRootCause(
+        const RootCauseReport& root_cause,
+        std::string& error) const;
+    bool appendRootCause(
+        int master_index,
         const RootCauseReport& root_cause,
         std::string& error) const;
 

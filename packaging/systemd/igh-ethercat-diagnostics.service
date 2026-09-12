@@ -6,7 +6,9 @@ After=ethercat.service
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/igh-ethercat-diagnostics
+Environment=IGH_DIAG_MASTERS=0
+EnvironmentFile=-/etc/default/igh-ethercat-diagnostics
+ExecStart=/usr/local/bin/igh-ethercat-diagnostics --masters ${IGH_DIAG_MASTERS}
 StateDirectory=igh-ethercat-diagnostics
 WorkingDirectory=/var/lib/igh-ethercat-diagnostics
 Restart=on-failure

@@ -22,11 +22,11 @@ private:
         std::uint64_t started_ms{};
         int expected_slave_count{};
         int minimum_slave_count{};
-        std::vector<int> expected_positions;
-        std::vector<int> missing_positions;
+        std::vector<SlaveIdentity> expected_identities;
+        std::vector<SlaveIdentity> missing_identities;
     };
 
-    static void appendMissingPositions(
+    static void appendMissingIdentities(
         FaultEpisode& episode,
         const NetworkSnapshot& current);
 

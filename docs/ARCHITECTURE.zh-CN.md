@@ -2,7 +2,7 @@
 
 简体中文 | [English](ARCHITECTURE.md)
 
-IgH EtherCAT Diagnostics v3.0.0 按“采集—检测—诊断—持久化—展示”划分职责。诊断守护进程通过字符设备观察现有 IgH Master，不进入 PDO 实时循环，也不调用 `ecrt_request_master()`。
+IgH EtherCAT Diagnostics v3.1.0 按“采集—检测—诊断—持久化—展示”划分职责。诊断守护进程通过字符设备观察现有 IgH Master，不进入 PDO 实时循环，也不调用 `ecrt_request_master()`。
 
 ```text
 /dev/EtherCAT0
@@ -37,7 +37,7 @@ IgH ioctl 后端 ----> NetworkSnapshot ----> Monitor（1 Hz）
 
 ## 运行时数据流
 
-1. `IoctlSnapshotReader` 和 `IghMasterDevice` 直接从 `/dev/EtherCATN` 读取 Master 与 Slave 状态，生产监控路径不启动 shell 进程。
+1. `IoctlSnapshotReader` 和 `IghMasterDevice` 直接从配置的 `/dev/EtherCATN` 读取状态。每个 Master 拥有独立的检测、历史、恢复和根因上下文。EEPROM Alias 与 relative position 构成稳定身份，Position 只用于当前寄存器访问。
 2. `Monitor` 每秒生成一个 `NetworkSnapshot`。后续模块只依赖这个强类型快照，不依赖具体采集方式。
 3. `EventDetector`、`RecoveryTracker` 和 `PortErrorTracker` 比较快照，生成拓扑、AL 状态、恢复和计数器增量事件。
 4. 环形黑匣子保留故障前历史。故障触发后继续采集，并生成 JSONL 证据文件。

@@ -2,6 +2,8 @@
 
 #include <thread>
 #include <utility>
+#include <algorithm>
+#include <set>
 
 Monitor::Monitor(
     MonitorConfig config,
@@ -34,7 +36,13 @@ Monitor::Monitor(
 bool Monitor::run(
     const ContinuePredicate& should_continue)
 {
-    if (config_.master_index < 0 ||
+    const std::vector<int> masters = config_.master_indices.empty()
+        ? std::vector<int>{config_.master_index}
+        : config_.master_indices;
+    const std::set<int> unique(masters.begin(), masters.end());
+    if (masters.empty() || unique.size() != masters.size() ||
+        std::any_of(masters.begin(), masters.end(),
+            [](int value) { return value < 0; }) ||
         config_.interval <= std::chrono::milliseconds::zero() ||
         !reader_ ||
         !handler_ ||
@@ -48,16 +56,14 @@ bool Monitor::run(
 
     while (should_continue())
     {
-        NetworkSnapshot snapshot;
-
-        const bool read_success =
-            reader_(
-                config_.master_index,
-                snapshot);
-
-        if (read_success)
+        for (const int master_index : masters)
         {
-            handler_(snapshot);
+            NetworkSnapshot snapshot;
+            const bool read_success = reader_(master_index, snapshot);
+            if (read_success)
+            {
+                handler_(snapshot);
+            }
         }
 
         next_deadline += config_.interval;

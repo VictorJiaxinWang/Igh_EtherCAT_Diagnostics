@@ -35,6 +35,30 @@ struct SlaveSnapshot
     std::string name;
 };
 
+struct SlaveIdentity
+{
+    int alias{};
+    int relative_position{};
+
+    bool valid() const { return alias > 0; }
+};
+
+inline SlaveIdentity stableIdentity(const SlaveSnapshot& slave)
+{
+    return {slave.alias, slave.relative_position};
+}
+
+inline bool sameStableIdentity(
+    const SlaveSnapshot& left,
+    const SlaveSnapshot& right)
+{
+    const SlaveIdentity a = stableIdentity(left);
+    const SlaveIdentity b = stableIdentity(right);
+    return a.valid() && b.valid() &&
+        a.alias == b.alias &&
+        a.relative_position == b.relative_position;
+}
+
 struct NetworkSnapshot
 {
     MasterSnapshot master;
@@ -63,6 +87,9 @@ struct FaultEvent
     int new_value;
     std::string description;
     int port_position{-1};
+    int master_index{-1};
+    int slave_alias{-1};
+    int slave_relative_position{-1};
 };
 
 struct RecoveryEvent
@@ -73,5 +100,6 @@ struct RecoveryEvent
     int fault_slave_count{};
     int recovered_slave_count{};
     std::vector<int> recovered_slave_positions;
+    std::vector<SlaveIdentity> recovered_slave_identities;
     std::string description;
 };

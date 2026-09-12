@@ -4,6 +4,11 @@
 #include <cstdint>
 #include <iostream>
 
+const FaultEvent* findEvent(
+    const std::vector<FaultEvent>& events,
+    EventType type,
+    int slave_position);
+
 NetworkSnapshot makeSnapshot(
     bool link_up,
     int slave_count,
@@ -25,10 +30,29 @@ SlaveSnapshot makeSlave(
     SlaveSnapshot slave{};
 
     slave.position = position;
+    slave.alias = position + 1;
     slave.state = state;
     slave.online = true;
 
     return slave;
+}
+
+void testRescanPositionChangeDoesNotCreateFalseEvents()
+{
+    EventDetector detector;
+    NetworkSnapshot previous = makeSnapshot(true, 3, 1000);
+    previous.slaves = {makeSlave(0), makeSlave(1), makeSlave(2)};
+
+    NetworkSnapshot current = makeSnapshot(true, 2, 2000);
+    current.slaves = {makeSlave(0), makeSlave(1)};
+    current.slaves[1].alias = 3; // old position 2 moved to position 1
+
+    detector.process(previous);
+    const auto events = detector.process(current);
+    const FaultEvent* lost = findEvent(events, EventType::SLAVE_LOST, 1);
+    assert(lost != nullptr);
+    assert(lost->slave_alias == 2);
+    assert(findEvent(events, EventType::SLAVE_LOST, 2) == nullptr);
 }
 
 const FaultEvent* findEvent(
@@ -243,6 +267,7 @@ int main()
     testReportsSlaveCountChanged();
     testReportsEveryLostSlave();
     testReportEveryStateChangeSlave();
+    testRescanPositionChangeDoesNotCreateFalseEvents();
 
     std::cout
         << "All EventDetector tests passed\n";

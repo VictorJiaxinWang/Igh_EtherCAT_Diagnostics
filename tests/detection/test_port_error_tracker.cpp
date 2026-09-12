@@ -119,6 +119,19 @@ void testChangedSlaveIdentityEstablishesANewBaseline()
     assert(replacement.empty());
 }
 
+void testAliasKeepsBaselineAcrossPositionChange()
+{
+    PortErrorTracker tracker;
+    tracker.process(1000U, 0, 6, 15, 0, "drive",
+        countersWithPort0(1U, 0U, 0U, 0U));
+    const auto events = tracker.process(2000U, 0, 5, 15, 0, "drive",
+        countersWithPort0(2U, 0U, 0U, 0U));
+    assert(events.size() == 1U);
+    assert(events[0].slave_position == 5);
+    assert(events[0].slave_alias == 15);
+    assert(events[0].master_index == 0);
+}
+
 } // namespace
 
 int main()
@@ -128,5 +141,6 @@ int main()
     testUnchangedAndSaturatedCountersDoNotRepeatEvents();
     testAnyDecreaseRebaselinesTheWholeEscWithoutFalseEvent();
     testChangedSlaveIdentityEstablishesANewBaseline();
+    testAliasKeepsBaselineAcrossPositionChange();
     std::cout << "port error tracker tests passed\n";
 }

@@ -4,7 +4,7 @@
 
 An independent EtherCAT diagnostic daemon for systems built on the IgH EtherCAT Master.
 
-Version: **v3.0.0**  
+Version: **v3.1.0**  
 Author: **Victor-Jiaxin Wang**  
 License: **MIT**
 
@@ -38,11 +38,13 @@ This software is a diagnostic aid, not a safety function and not an automatic re
 - Atomic Web status output and append-only event output.
 - Zero-dependency C++ HTTP service and responsive Chinese operator dashboard.
 - systemd unit, graceful `SIGINT`/`SIGTERM` shutdown, and automated tests.
+- Configurable monitoring of Master 0, Master 1, or both with isolated per-Master diagnostic state.
+- Stable EEPROM Alias identity (`alias:relative_position`); Position is retained only for current ioctl addressing after a rescan.
 
 ## Architecture
 
 ```text
-/dev/EtherCAT0 -> ioctl backend -> NetworkSnapshot -> 1 Hz Monitor
+/dev/EtherCAT0,1 -> ioctl backend -> isolated per-Master snapshots -> 1 Hz Monitor
                                              |
         +--------------------+---------------+-------------------+
         |                    |                                   |
@@ -121,7 +123,7 @@ Run from a writable directory because runtime data is stored below `./logs`:
 ```bash
 mkdir -p "$HOME/igh-ethercat-diagnostics-runtime"
 cd "$HOME/igh-ethercat-diagnostics-runtime"
-/path/to/repository/build/igh-ethercat-diagnostics
+/path/to/repository/build/igh-ethercat-diagnostics --masters 0,1
 ```
 
 If the current user cannot open `/dev/EtherCAT0`, add the user to the device's group and reconnect the login session, or run the probe as root. Avoid making the device world-writable.
@@ -134,6 +136,15 @@ sudo usermod -aG ethercat "$USER"
 ```
 
 ## Install and deploy with systemd
+
+After installation, select the monitored Masters in `/etc/default/igh-ethercat-diagnostics`:
+
+```bash
+# 0, 1, or both:
+IGH_DIAG_MASTERS=0,1
+```
+
+Use `packaging/igh-ethercat-diagnostics.default` as the template and restart the diagnostic service after changing it.
 
 ```bash
 sudo cmake --install build
@@ -170,7 +181,8 @@ sudo systemctl disable igh-ethercat-diagnostics.service
 logs/
 ├── latest_status.json
 ├── events.jsonl
-└── fault_<timestamp_ms>.jsonl
+├── master0/fault_<timestamp_ms>.jsonl
+└── master1/fault_<timestamp_ms>.jsonl
 ```
 
 `latest_status.json` may be read repeatedly. For `events.jsonl`, process one JSON object per line and persist your last consumed offset when building a long-running integration.

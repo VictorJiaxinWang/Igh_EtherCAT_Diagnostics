@@ -17,6 +17,15 @@ public:
         const std::string& slave_name,
         const PortErrorCounters& current);
 
+    std::vector<FaultEvent> process(
+        std::uint64_t timestamp_ms,
+        int master_index,
+        int slave_position,
+        int slave_alias,
+        int slave_relative_position,
+        const std::string& slave_name,
+        const PortErrorCounters& current);
+
 private:
     struct Baseline
     {
@@ -24,5 +33,5 @@ private:
         PortErrorCounters counters;
     };
 
-    std::unordered_map<int, Baseline> baselines_;
+    std::unordered_map<std::string, Baseline> baselines_;
 };

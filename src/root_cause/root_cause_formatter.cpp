@@ -61,6 +61,19 @@ std::string boundaryText(
     {
         return "unavailable";
     }
+    if (boundary->first_lost_alias > 0)
+    {
+        const std::string first = "Alias" +
+            std::to_string(boundary->first_lost_alias) + ":" +
+            std::to_string(boundary->first_lost_relative_position);
+        if (boundary->last_alive_alias < 0)
+        {
+            return "Master<->" + first;
+        }
+        return "Alias" + std::to_string(boundary->last_alive_alias) + ":" +
+            std::to_string(boundary->last_alive_relative_position) +
+            "<->" + first;
+    }
     if (boundary->last_alive_slave < 0)
     {
         return "Master<->Slave" +
@@ -159,7 +172,15 @@ std::string rootCauseReportToJson(const RootCauseReport& report)
         output << ",\"boundary\":{\"last_alive_slave\":"
                << report.boundary->last_alive_slave
                << ",\"first_lost_slave\":"
-               << report.boundary->first_lost_slave << '}';
+               << report.boundary->first_lost_slave
+               << ",\"last_alive_alias\":"
+               << report.boundary->last_alive_alias
+               << ",\"last_alive_relative_position\":"
+               << report.boundary->last_alive_relative_position
+               << ",\"first_lost_alias\":"
+               << report.boundary->first_lost_alias
+               << ",\"first_lost_relative_position\":"
+               << report.boundary->first_lost_relative_position << '}';
     }
     else
     {

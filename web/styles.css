@@ -240,3 +240,6 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 28px
   .event-row { grid-template-columns: 70px 10px 1fr; gap: 9px; }
   footer { flex-direction: column; }
 }
+/* Multi-master selector */
+.master-picker { display:flex; justify-content:flex-end; align-items:center; gap:.75rem; margin-bottom:1rem; }
+.master-picker select { color:#eaf7fa; background:#10252b; border:1px solid #36545c; border-radius:.5rem; padding:.45rem .8rem; }

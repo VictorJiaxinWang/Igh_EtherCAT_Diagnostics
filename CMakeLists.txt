@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 
 project(
     igh_ethercat_diagnostics
-    VERSION 3.0.0
+    VERSION 3.1.0
     LANGUAGES CXX
 )
 
@@ -64,6 +64,7 @@ set(ROOT_CAUSE_SOURCES
 
 set(CLI_SOURCES
     src/cli/probe_options.cpp
+    src/cli/daemon_options.cpp
 )
 
 set(PUBLISHING_SOURCES
@@ -356,6 +357,7 @@ add_diag_test(active_diagnosis tests/diagnosis/test_active_diagnosis.cpp)
 add_diag_test(diagnosis_coordinator tests/diagnosis/test_diagnosis_coordinator.cpp)
 add_diag_test(diagnosis_result_formatter tests/diagnosis/test_diagnosis_result_formatter.cpp)
 add_diag_test(probe_options tests/cli/test_probe_options.cpp)
+add_diag_test(daemon_options tests/cli/test_daemon_options.cpp)
 add_diag_test(header_compatibility tests/integration/test_header_compatibility.cpp)
 add_diag_test(ioctl_monitor_adapter tests/integration/test_ioctl_monitor_adapter.cpp)
 add_diag_test(igh_ioctl_abi tests/integration/test_igh_ioctl_abi.cpp)

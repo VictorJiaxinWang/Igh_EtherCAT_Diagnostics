@@ -1,9 +1,19 @@
 #include "ethercat_diag/detection/event_detector.h"
 
+#include <algorithm>
+
 std::vector<FaultEvent> EventDetector::process(
     const NetworkSnapshot& current)
 {
     std::vector<FaultEvent> events;
+
+    const auto findCurrent = [&current](const SlaveSnapshot& wanted) {
+        return std::find_if(
+            current.slaves.begin(), current.slaves.end(),
+            [&wanted](const SlaveSnapshot& candidate) {
+                return sameStableIdentity(wanted, candidate);
+            });
+    };
 
     if (!previous_)
     {
@@ -64,20 +74,11 @@ std::vector<FaultEvent> EventDetector::process(
     for (const SlaveSnapshot& old_slave :
      previous_->slaves)
     {
-        bool still_exists = false;
-
-        for (const SlaveSnapshot& current_slave :
-            current.slaves)
+        if (!stableIdentity(old_slave).valid())
         {
-            if (current_slave.position ==
-                old_slave.position)
-            {
-                still_exists = true;
-                break;
-            }
+            continue;
         }
-
-        if (!still_exists)
+        if (findCurrent(old_slave) == current.slaves.end())
         {
             events.push_back(
                 FaultEvent{
@@ -89,22 +90,27 @@ std::vector<FaultEvent> EventDetector::process(
                     "Slave " +
                         std::to_string(
                             old_slave.position) +
-                        " was lost"
-                });
+                        " (alias " + std::to_string(old_slave.alias) +
+                        ":" + std::to_string(old_slave.relative_position) +
+                        ") was lost",
+                    -1,
+                    current.master.master_index,
+                    old_slave.alias,
+                    old_slave.relative_position});
         }
     }
 
     for (const SlaveSnapshot& current_slave :
         current.slaves)
     {
-        for (const SlaveSnapshot& old_slave :
-            previous_->slaves)
+        const auto old = std::find_if(
+            previous_->slaves.begin(), previous_->slaves.end(),
+            [&current_slave](const SlaveSnapshot& candidate) {
+                return sameStableIdentity(current_slave, candidate);
+            });
+        if (old != previous_->slaves.end())
         {
-            if (current_slave.position !=
-                old_slave.position)
-            {
-                continue;
-            }
+            const SlaveSnapshot& old_slave = *old;
 
             if (current_slave.state != old_slave.state)
             {
@@ -118,11 +124,21 @@ std::vector<FaultEvent> EventDetector::process(
                         "Slave " +
                             std::to_string(
                                 current_slave.position) +
-                            " state changed"
-                    });
+                            " state changed",
+                        -1,
+                        current.master.master_index,
+                        current_slave.alias,
+                        current_slave.relative_position});
             }
 
-            break;
+        }
+    }
+
+    for (FaultEvent& event : events)
+    {
+        if (event.master_index < 0)
+        {
+            event.master_index = current.master.master_index;
         }
     }
 

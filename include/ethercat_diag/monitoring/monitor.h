@@ -4,10 +4,12 @@
 
 #include <chrono>
 #include <functional>
+#include <vector>
 
 struct MonitorConfig
 {
     int master_index{0};
+    std::vector<int> master_indices;
 
     std::chrono::milliseconds interval{
         1000

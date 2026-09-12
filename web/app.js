@@ -3,12 +3,32 @@
 const byId = (id) => document.getElementById(id);
 const state = {
   snapshot: null,
+  masters: [],
+  selectedMaster: null,
   events: [],
   lastTimestamp: null,
   lastAdvanceAt: 0,
   lastSuccessAt: 0,
   error: ''
 };
+
+function selectMasterSnapshot() {
+  return state.masters.find((item) => Number(item.master_index) === Number(state.selectedMaster)) || state.masters[0] || null;
+}
+
+function updateMasterSelector() {
+  const select = byId('master-select');
+  const available = state.masters.map((item) => Number(item.master_index));
+  if (!available.includes(Number(state.selectedMaster))) state.selectedMaster = available[0] ?? null;
+  select.replaceChildren(...available.map((index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = `Master ${index}`;
+    option.selected = index === Number(state.selectedMaster);
+    return option;
+  }));
+  select.disabled = available.length < 2;
+}
 
 const causes = {
   MASTER_LINK_FAILURE: {
@@ -138,18 +158,19 @@ function renderTopology(snapshot) {
   container.append(topologyNode('Master', 'RK3588 / IgH', snapshot.link_up ? 'LINK UP' : 'LINK DOWN', snapshot.link_up ? 'healthy' : 'fault'));
 
   const slaves = Array.isArray(snapshot.slaves) ? [...snapshot.slaves] : [];
-  if (boundary && Number.isInteger(boundary.first_lost_slave) && !slaves.some((item) => item.position === boundary.first_lost_slave)) {
-    slaves.push({ position: boundary.first_lost_slave, name: '第一个离线从站', state: 'OFFLINE', online: false });
+  if (boundary && Number.isInteger(boundary.first_lost_alias) && !slaves.some((item) => Number(item.alias) === Number(boundary.first_lost_alias))) {
+    slaves.push({ position: boundary.first_lost_slave, alias: boundary.first_lost_alias, relative_position: boundary.first_lost_relative_position, name: '第一个离线从站', state: 'OFFLINE', online: false });
   }
   slaves.sort((a, b) => Number(a.position) - Number(b.position));
 
   slaves.forEach((slave, index) => {
     const position = Number(slave.position);
     const brokenAtMaster = cause.kind === 'MASTER_LINK_FAILURE' && index === 0;
-    const brokenAtBoundary = boundary && position === Number(boundary.first_lost_slave);
+    const brokenAtBoundary = boundary && Number(slave.alias) === Number(boundary.first_lost_alias);
     container.append(topologyLink(Boolean(brokenAtMaster || brokenAtBoundary)));
-    const offline = Boolean(boundary && position >= Number(boundary.first_lost_slave));
-    container.append(topologyNode(`Slave ${position}`, slave.name || '未知设备', offline ? 'OFFLINE' : (slave.state || 'UNKNOWN'), nodeClass(slave, offline)));
+    const offline = slave.online === false;
+    const identity = Number(slave.alias) > 0 ? `Alias ${slave.alias}:${slave.relative_position ?? 0}` : `Slave ${position}`;
+    container.append(topologyNode(identity, `${slave.name || '未知设备'} · Position ${position}`, offline ? 'OFFLINE' : (slave.state || 'UNKNOWN'), nodeClass(slave, offline)));
   });
 
   if (slaves.length === 0) {
@@ -158,7 +179,7 @@ function renderTopology(snapshot) {
   }
 
   setText('topology-hint', boundary
-    ? `红色断点：Slave ${boundary.last_alive_slave} 与 Slave ${boundary.first_lost_slave} 之间`
+    ? `红色断点：Alias ${boundary.last_alive_alias}:${boundary.last_alive_relative_position} 与 Alias ${boundary.first_lost_alias}:${boundary.first_lost_relative_position} 之间`
     : (snapshot.link_up ? '当前未定位到链路断点' : 'Master 入口链路已经断开'));
 }
 
@@ -205,7 +226,7 @@ function renderDiagnosis(snapshot) {
   const actions = [...cause.actions];
   const boundary = report?.boundary;
   if (kind === 'BOUNDARY_LINK_FAILURE' && boundary) {
-    actions[0] = `定位 Slave ${boundary.last_alive_slave} 与 Slave ${boundary.first_lost_slave} 之间的红色断点。`;
+    actions[0] = `定位 Alias ${boundary.last_alive_alias}:${boundary.last_alive_relative_position} 与 Alias ${boundary.first_lost_alias}:${boundary.first_lost_relative_position} 之间的红色断点。`;
   }
   actions.push('重新连接后等待至少 2 秒，确认顶部变绿且从站数量恢复。');
   replaceList('recovery-steps', actions, '保留现场并联系工程师');
@@ -294,7 +315,10 @@ async function refresh() {
   ]);
 
   if (statusResult.status === 'fulfilled') {
-    const snapshot = statusResult.value;
+    const payload = statusResult.value;
+    state.masters = Array.isArray(payload.masters) ? payload.masters : [payload];
+    updateMasterSelector();
+    const snapshot = selectMasterSnapshot();
     if (snapshot.updated_ms !== state.lastTimestamp) {
       state.lastTimestamp = snapshot.updated_ms;
       state.lastAdvanceAt = performance.now();
@@ -309,10 +333,18 @@ async function refresh() {
   }
 
   if (eventsResult.status === 'fulfilled' && Array.isArray(eventsResult.value)) {
-    state.events = eventsResult.value;
+    state.events = eventsResult.value.filter((event) =>
+      event.master_index === undefined || Number(event.master_index) === Number(state.selectedMaster));
   }
   render();
 }
 
 refresh();
+byId('master-select').addEventListener('change', (event) => {
+  state.selectedMaster = Number(event.target.value);
+  state.snapshot = selectMasterSnapshot();
+  state.lastTimestamp = null;
+  state.lastAdvanceAt = performance.now();
+  refresh();
+});
 setInterval(refresh, 1000);

@@ -8,6 +8,8 @@
 | --- | --- | --- |
 | `updated_ms` | integer | 最近快照时间戳 |
 | `status` | string | HEALTHY、DEGRADED 或 FAULT |
+| `schema_version` | integer | 多 Master 格式当前为 2 |
+| `masters` | array | 每个受监测 Master 的独立状态对象 |
 | `master_index` | integer | IgH Master 编号 |
 | `phase` | string | Master phase |
 | `active` | boolean | Master active 状态 |
@@ -20,6 +22,8 @@
 消费者必须允许以后增加字段，不应依赖 JSON 字段顺序。
 
 ## events.jsonl
+
+每条新事件都包含 `master_index`；从站事件同时包含 `slave_alias`、`slave_relative_position` 和当时的 `slave_position`。Alias 是稳定身份，Position 只是该次快照中的临时地址。
 
 每行一个独立 JSON 对象。`record` 当前可能为：
 

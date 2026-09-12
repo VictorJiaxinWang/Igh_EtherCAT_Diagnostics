@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.0 - 2026-09-12
+
+- Add configurable monitoring for Master 0, Master 1, or both.
+- Use EEPROM Alias identity for loss, recovery, and fault-boundary detection across rescans.
+- Publish multi-Master status and identify Master/Alias in events and the Web UI.
+
 ## 3.0.0 - 2026-09-05
 
 - Add the standalone `igh-ethercat-diagnostics-web` C++ HTTP service.

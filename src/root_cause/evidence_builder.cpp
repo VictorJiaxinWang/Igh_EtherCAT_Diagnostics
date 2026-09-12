@@ -94,7 +94,11 @@ DiagnosisEvidence EvidenceBuilder::build(
     {
         evidence.boundary = BoundaryEvidence{
             diagnosis->boundary.last_alive_slave,
-            diagnosis->boundary.first_lost_slave};
+            diagnosis->boundary.first_lost_slave,
+            diagnosis->boundary.last_alive_alias,
+            diagnosis->boundary.last_alive_relative_position,
+            diagnosis->boundary.first_lost_alias,
+            diagnosis->boundary.first_lost_relative_position};
     }
 
     if (!diagnosis->error.empty())

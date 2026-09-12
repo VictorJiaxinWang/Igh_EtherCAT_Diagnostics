@@ -4,81 +4,59 @@
 
 namespace
 {
-
-bool containsPosition(
-    const NetworkSnapshot& snapshot,
-    int position)
+bool sameIdentity(const SlaveIdentity& a, const SlaveIdentity& b)
 {
-    return std::any_of(
-        snapshot.slaves.begin(),
-        snapshot.slaves.end(),
-        [position](const SlaveSnapshot& slave) {
-            return slave.position == position;
+    return a.valid() && b.valid() && a.alias == b.alias &&
+        a.relative_position == b.relative_position;
+}
+
+bool containsIdentity(const NetworkSnapshot& snapshot, const SlaveIdentity& id)
+{
+    return std::any_of(snapshot.slaves.begin(), snapshot.slaves.end(),
+        [&id](const SlaveSnapshot& slave) {
+            return sameIdentity(stableIdentity(slave), id);
         });
 }
 
 bool isFaultTrigger(const FaultEvent& event)
 {
-    if (event.type == EventType::MASTER_LINK_DOWN ||
-        event.type == EventType::SLAVE_LOST)
-    {
-        return true;
-    }
-
-    return event.type == EventType::SLAVE_COUNT_CHANGED &&
-           event.new_value < event.old_value;
+    return event.type == EventType::MASTER_LINK_DOWN ||
+        event.type == EventType::SLAVE_LOST ||
+        (event.type == EventType::SLAVE_COUNT_CHANGED &&
+         event.new_value < event.old_value);
 }
-
-const FaultEvent* findFaultTrigger(
-    const std::vector<FaultEvent>& events)
-{
-    const auto found = std::find_if(
-        events.begin(),
-        events.end(),
-        isFaultTrigger);
-
-    return found == events.end() ? nullptr : &*found;
-}
-
 } // namespace
 
-void RecoveryTracker::appendMissingPositions(
-    FaultEpisode& episode,
-    const NetworkSnapshot& current)
+void RecoveryTracker::appendMissingIdentities(
+    FaultEpisode& episode, const NetworkSnapshot& current)
 {
-    for (const int position : episode.expected_positions)
+    for (const SlaveIdentity& id : episode.expected_identities)
     {
-        if (containsPosition(current, position))
+        if (containsIdentity(current, id))
         {
             continue;
         }
-
-        if (std::find(
-                episode.missing_positions.begin(),
-                episode.missing_positions.end(),
-                position) == episode.missing_positions.end())
+        if (std::none_of(episode.missing_identities.begin(),
+                episode.missing_identities.end(),
+                [&id](const SlaveIdentity& value) {
+                    return sameIdentity(value, id);
+                }))
         {
-            episode.missing_positions.push_back(position);
+            episode.missing_identities.push_back(id);
         }
     }
 }
 
 bool RecoveryTracker::topologyRecovered(
-    const FaultEpisode& episode,
-    const NetworkSnapshot& current)
+    const FaultEpisode& episode, const NetworkSnapshot& current)
 {
-    if (!current.master.link_up ||
-        current.master.slave_count < episode.expected_slave_count)
-    {
-        return false;
-    }
-
-    return std::all_of(
-        episode.expected_positions.begin(),
-        episode.expected_positions.end(),
-        [&current](int position) {
-            return containsPosition(current, position);
-        });
+    return current.master.link_up &&
+        current.master.slave_count >= episode.expected_slave_count &&
+        std::all_of(episode.expected_identities.begin(),
+            episode.expected_identities.end(),
+            [&current](const SlaveIdentity& id) {
+                return containsIdentity(current, id);
+            });
 }
 
 std::optional<RecoveryEvent> RecoveryTracker::process(
@@ -87,39 +65,33 @@ std::optional<RecoveryEvent> RecoveryTracker::process(
     const std::vector<FaultEvent>& events)
 {
     bool started_now = false;
-
     if (!episode_)
     {
-        const FaultEvent* trigger = findFaultTrigger(events);
-
-        if (trigger == nullptr || !previous)
+        const auto trigger = std::find_if(events.begin(), events.end(), isFaultTrigger);
+        if (trigger == events.end() || !previous)
         {
             return std::nullopt;
         }
-
         FaultEpisode episode;
         episode.started_ms = trigger->timestamp_ms;
-        episode.expected_slave_count =
-            previous->master.slave_count;
-        episode.minimum_slave_count =
-            current.master.slave_count;
-
+        episode.expected_slave_count = previous->master.slave_count;
+        episode.minimum_slave_count = current.master.slave_count;
         for (const SlaveSnapshot& slave : previous->slaves)
         {
-            episode.expected_positions.push_back(
-                slave.position);
+            const SlaveIdentity id = stableIdentity(slave);
+            if (!id.valid())
+            {
+                return std::nullopt;
+            }
+            episode.expected_identities.push_back(id);
         }
-
         episode_ = std::move(episode);
         started_now = true;
     }
 
     episode_->minimum_slave_count = std::min(
-        episode_->minimum_slave_count,
-        current.master.slave_count);
-
-    appendMissingPositions(*episode_, current);
-
+        episode_->minimum_slave_count, current.master.slave_count);
+    appendMissingIdentities(*episode_, current);
     if (started_now || !topologyRecovered(*episode_, current))
     {
         return std::nullopt;
@@ -128,18 +100,21 @@ std::optional<RecoveryEvent> RecoveryTracker::process(
     RecoveryEvent recovery;
     recovery.timestamp_ms = current.master.timestamp_ms;
     recovery.fault_started_ms = episode_->started_ms;
-    recovery.duration_ms =
-        recovery.timestamp_ms >= recovery.fault_started_ms
-            ? recovery.timestamp_ms - recovery.fault_started_ms
-            : 0;
-    recovery.fault_slave_count =
-        episode_->minimum_slave_count;
-    recovery.recovered_slave_count =
-        current.master.slave_count;
-    recovery.recovered_slave_positions =
-        episode_->missing_positions;
+    recovery.duration_ms = recovery.timestamp_ms >= recovery.fault_started_ms
+        ? recovery.timestamp_ms - recovery.fault_started_ms : 0U;
+    recovery.fault_slave_count = episode_->minimum_slave_count;
+    recovery.recovered_slave_count = current.master.slave_count;
+    recovery.recovered_slave_identities = episode_->missing_identities;
+    for (const SlaveIdentity& id : episode_->missing_identities)
+    {
+        const auto found = std::find_if(current.slaves.begin(), current.slaves.end(),
+            [&id](const SlaveSnapshot& slave) {
+                return sameIdentity(stableIdentity(slave), id);
+            });
+        recovery.recovered_slave_positions.push_back(
+            found == current.slaves.end() ? -1 : found->position);
+    }
     recovery.description = "EtherCAT network recovered";
-
     episode_.reset();
     return recovery;
 }

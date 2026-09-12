@@ -18,19 +18,19 @@
 cd /path/to/igh-ethercat-diagnostics
 git init
 git add .
-git commit -m "Initial open-source release v3.0.0"
+git commit -m "Release v3.1.0"
 git branch -M main
 git remote add origin <你的 GitHub 仓库地址>
 git push -u origin main
 ```
 
-建议仓库名使用 `igh-ethercat-diagnostics`，发布标签使用 `v3.0.0`。
+建议仓库名使用 `igh-ethercat-diagnostics`，发布标签使用 `v3.1.0`。
 
 ## 后续版本
 
 ```bash
-git tag -a v3.0.0 -m "IgH EtherCAT Diagnostics v3.0.0"
-git push origin v3.0.0
+git tag -a v3.1.0 -m "IgH EtherCAT Diagnostics v3.1.0"
+git push origin v3.1.0
 ```
 
 以后每次发布先更新 `CHANGELOG.md`、README 版本和测试结果，再创建新标签。

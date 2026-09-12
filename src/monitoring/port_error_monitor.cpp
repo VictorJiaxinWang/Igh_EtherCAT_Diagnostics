@@ -76,7 +76,10 @@ PortErrorMonitorResult PortErrorMonitor::process(
 
     result.events = tracker_.process(
         snapshot.master.timestamp_ms,
+        snapshot.master.master_index,
         slave.position,
+        slave.alias,
+        slave.relative_position,
         slave.name,
         read_result.counters);
     return result;

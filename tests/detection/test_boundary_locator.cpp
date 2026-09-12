@@ -14,6 +14,7 @@ NetworkSnapshot makeSnapshotWithPositions(
         SlaveSnapshot slave{};
 
         slave.position = position;
+        slave.alias = position + 1;
         slave.online = true;
 
         snapshot.slaves.push_back(slave);
@@ -23,6 +24,22 @@ NetworkSnapshot makeSnapshotWithPositions(
         static_cast<int>(
             snapshot.slaves.size());
 
+    return snapshot;
+}
+
+NetworkSnapshot makeSnapshotWithAliases(
+    const std::vector<std::pair<int, int>>& position_aliases)
+{
+    NetworkSnapshot snapshot;
+    for (const auto& [position, alias] : position_aliases)
+    {
+        SlaveSnapshot slave{};
+        slave.position = position;
+        slave.alias = alias;
+        slave.online = true;
+        snapshot.slaves.push_back(slave);
+    }
+    snapshot.master.slave_count = static_cast<int>(snapshot.slaves.size());
     return snapshot;
 }
 
@@ -128,6 +145,21 @@ void testLocatesMissingMiddlePosition()
     assert(boundary.first_lost_slave == 1);
 }
 
+void testUsesAliasWhenRescanChangesPositions()
+{
+    const NetworkSnapshot previous = makeSnapshotWithAliases(
+        {{0, 10}, {1, 11}, {2, 12}, {3, 13}});
+    const NetworkSnapshot current = makeSnapshotWithAliases(
+        {{0, 10}, {1, 12}, {2, 13}});
+
+    const FaultBoundary boundary = BoundaryLocator{}.locate(previous, current);
+    assert(boundary.valid);
+    assert(boundary.last_alive_slave == 0);
+    assert(boundary.last_alive_alias == 10);
+    assert(boundary.first_lost_slave == 1);
+    assert(boundary.first_lost_alias == 11);
+}
+
 int main()
 {
     testLocatesTailDisconnectionBoundary();
@@ -135,6 +167,7 @@ int main()
     testLocatesBoundaryWhenAllSlavesAreLost();
     testIgnoresVectorOrder();
     testLocatesMissingMiddlePosition();
+    testUsesAliasWhenRescanChangesPositions();
 
     std::cout
         << "All BoundaryLocator tests passed\n";

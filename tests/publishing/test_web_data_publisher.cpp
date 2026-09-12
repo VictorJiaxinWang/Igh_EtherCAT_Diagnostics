@@ -108,6 +108,22 @@ void testInconclusiveQualityReportMakesStatusDegraded()
            std::string::npos);
 }
 
+void testMultiMasterStatusContainsBothMasters()
+{
+    NetworkSnapshot master0 = makeSnapshot();
+    NetworkSnapshot master1 = makeSnapshot();
+    master1.master.master_index = 1;
+    master1.master.timestamp_ms = 2000U;
+    const std::string json = makeMultiMasterStatusJson({
+        {master0, std::nullopt, std::nullopt},
+        {master1, std::nullopt, std::nullopt}});
+    assert(json.find("\"schema_version\":2") != std::string::npos);
+    assert(json.find("\"masters\":[") != std::string::npos);
+    assert(json.find("\"master_index\":0") != std::string::npos);
+    assert(json.find("\"master_index\":1") != std::string::npos);
+    assert(json.find("\"updated_ms\":2000") != std::string::npos);
+}
+
 void testAtomicPublishReplacesStatusAndLeavesNoTemporaryFile()
 {
     const std::filesystem::path directory =
@@ -193,6 +209,7 @@ int main()
     testHealthyStatusJsonContainsMasterSlavesAndEscaping();
     testRootCauseMakesStatusFaultAndIsEmbedded();
     testInconclusiveQualityReportMakesStatusDegraded();
+    testMultiMasterStatusContainsBothMasters();
     testAtomicPublishReplacesStatusAndLeavesNoTemporaryFile();
     testEventsJsonlAppendsFaultRecoveryAndRootCause();
     testWriteFailureReturnsUsefulError();

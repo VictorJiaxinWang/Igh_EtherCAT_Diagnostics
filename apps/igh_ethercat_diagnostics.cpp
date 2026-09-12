@@ -14,6 +14,7 @@
 #include "ethercat_diag/root_cause/root_cause_analyzer.h"
 #include "ethercat_diag/root_cause/root_cause_formatter.h"
 #include "ethercat_diag/publishing/web_data_publisher.h"
+#include "ethercat_diag/cli/daemon_options.h"
 
 #include <optional>
 #include <filesystem>
@@ -24,11 +25,40 @@
 #include <cstdint>
 #include <iomanip>
 #include <unordered_map>
+#include <map>
+#include <memory>
+#include <string>
 
 namespace
 {
 
 volatile std::sig_atomic_t stop_requested = 0;
+
+struct MasterRuntime
+{
+    explicit MasterRuntime(int index)
+        : diagnosis_coordinator(index),
+          port_error_monitor(index),
+          blackbox(30, 10)
+    {
+    }
+
+    std::uint64_t consecutive_read_failures{};
+    std::unordered_map<int, std::uint64_t> port_read_failures;
+    EventDetector detector;
+    RecoveryTracker recovery_tracker;
+    std::optional<NetworkSnapshot> previous_snapshot;
+    EvidenceBuilder evidence_builder;
+    EvidenceWindow evidence_window{10000U};
+    RootCauseAnalyzer root_cause_analyzer;
+    std::optional<RootCauseReport> latest_root_cause;
+    std::optional<RootCauseReport> active_root_cause;
+    std::optional<std::uint64_t> last_fault_timestamp_ms;
+    DiagnosisCoordinator diagnosis_coordinator;
+    PortErrorMonitor port_error_monitor;
+    Blackbox blackbox;
+    bool blackbox_save_attempted{};
+};
 
 void handleStopSignal(int)
 {
@@ -64,7 +94,7 @@ void printSnapshot(const NetworkSnapshot& snapshot)
     const std::vector<SlaveSnapshot>& slaves = snapshot.slaves;
 
     std::cout << "=====================================" << '\n';
-    std::cout << "Master0\n";
+    std::cout << "Master" << master.master_index << '\n';
     std::cout << "Phase  : " << master.phase << '\n';
     std::cout << "Active : "
               << (master.active ? "yes" : "no")
@@ -80,7 +110,8 @@ void printSnapshot(const NetworkSnapshot& snapshot)
     {
         std::cout
             << "Slave"
-            << slave.position
+            << slave.position << " (alias " << slave.alias << ':'
+            << slave.relative_position << ')'
             << " : "
             << alStateToString(slave.state);
 
@@ -144,6 +175,13 @@ void printFaultEvent(const FaultEvent& event)
             << " slave=" << event.slave_position;
     }
 
+    std::cout << " master=" << event.master_index;
+    if (event.slave_alias > 0)
+    {
+        std::cout << " alias=" << event.slave_alias << ':'
+                  << event.slave_relative_position;
+    }
+
     if (event.port_position >= 0)
     {
         std::cout
@@ -191,8 +229,24 @@ void printRecoveryEvent(const RecoveryEvent& event)
 
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+
+    std::vector<int> configured_masters{0};
+    if (argc == 3 && std::string(argv[1]) == "--masters")
+    {
+        configured_masters = parseMasterList(argv[2]);
+    }
+    else if (argc != 1)
+    {
+        std::cerr << "Usage: " << argv[0] << " [--masters 0,1]\n";
+        return 2;
+    }
+    if (configured_masters.empty())
+    {
+        std::cerr << "Invalid --masters value\n";
+        return 2;
+    }
 
     enableImmediateFlush(std::cout);
 
@@ -204,20 +258,7 @@ int main()
     }
 
     IoctlSnapshotReader reader;
-    std::uint64_t consecutive_read_failures = 0U;
-    std::unordered_map<int, std::uint64_t>
-        port_read_failures;
-    EventDetector detector;
-    RecoveryTracker recovery_tracker;
-    std::optional<NetworkSnapshot> previous_snapshot;
-    EvidenceBuilder evidence_builder;
-    EvidenceWindow evidence_window(10000U);
-    RootCauseAnalyzer root_cause_analyzer;
-    std::optional<RootCauseReport> latest_root_cause;
-    std::optional<RootCauseReport> active_root_cause;
-    std::optional<std::uint64_t> last_fault_timestamp_ms;
-    
-    Blackbox blackbox(30, 10);  // 当前1Hz，故障前30s，故障后10s
+    std::map<int, std::unique_ptr<MasterRuntime>> runtimes;
 
     const std::filesystem::path log_directory =
         std::filesystem::current_path() /
@@ -239,23 +280,33 @@ int main()
         return 1;
     }
 
-    bool blackbox_save_attempted = false;
+    for (const int master_index : configured_masters)
+    {
+        std::filesystem::create_directories(
+            log_directory / ("master" + std::to_string(master_index)),
+            directory_error);
+        if (directory_error)
+        {
+            std::cerr << "Failed to create per-master log directory: "
+                      << directory_error.message() << '\n';
+            return 1;
+        }
+        runtimes.emplace(master_index,
+            std::make_unique<MasterRuntime>(master_index));
+    }
+
     WebDataPublisher web_data_publisher(log_directory);
 
     MonitorConfig config;
-    config.master_index = 0;
+    config.master_indices = configured_masters;
     config.interval = std::chrono::milliseconds(1000);
-
-    DiagnosisCoordinator diagnosis_coordinator(
-        config.master_index);
-    PortErrorMonitor port_error_monitor(
-        config.master_index);
 
     Monitor monitor(
         config,
 
-        [&reader, &consecutive_read_failures](int master_index,
+        [&reader, &runtimes](int master_index,
                 NetworkSnapshot& snapshot) {
+            MasterRuntime& runtime = *runtimes.at(master_index);
             IghDeviceError error;
             const bool success = applySnapshotReadResult(
                 reader.readSnapshot(master_index),
@@ -264,14 +315,14 @@ int main()
 
             if (success)
             {
-                consecutive_read_failures = 0U;
+                runtime.consecutive_read_failures = 0U;
                 return true;
             }
 
-            ++consecutive_read_failures;
+            ++runtime.consecutive_read_failures;
 
-            if (consecutive_read_failures == 1U ||
-                consecutive_read_failures % 60U == 0U)
+            if (runtime.consecutive_read_failures == 1U ||
+                runtime.consecutive_read_failures % 60U == 0U)
             {
                 std::cerr
                     << "[WARN] Failed to read EtherCAT master "
@@ -279,45 +330,34 @@ int main()
                     << " operation=" << error.operation
                     << " errno=" << error.system_errno
                     << " message=\"" << error.message << "\""
-                    << " consecutive=" << consecutive_read_failures
+                    << " consecutive=" << runtime.consecutive_read_failures
                     << '\n';
             }
 
             return false;
         },
 
-          [&detector,
-          &recovery_tracker,
-          &diagnosis_coordinator,
-          &port_error_monitor,
-          &port_read_failures,
-          &previous_snapshot,
-          &evidence_builder,
-          &evidence_window,
-          &root_cause_analyzer,
-          &latest_root_cause,
-          &active_root_cause,
-          &last_fault_timestamp_ms,
+          [&runtimes,
           &web_data_publisher,
-          &blackbox,
-          &log_directory,
-          &blackbox_save_attempted]
+          &log_directory]
           (const NetworkSnapshot& snapshot)
           {
+            MasterRuntime& runtime =
+                *runtimes.at(snapshot.master.master_index);
               printSnapshot(snapshot);
 
-            blackbox.push(snapshot);
+            runtime.blackbox.push(snapshot);
 
             std::vector<FaultEvent> events =
-                detector.process(snapshot);
+                runtime.detector.process(snapshot);
 
             PortErrorMonitorResult port_result =
-                port_error_monitor.process(snapshot);
+                runtime.port_error_monitor.process(snapshot);
 
             if (!port_result.error.empty())
             {
                 std::uint64_t& failure_count =
-                    port_read_failures[
+                    runtime.port_read_failures[
                         port_result.slave_position];
                 ++failure_count;
 
@@ -335,7 +375,7 @@ int main()
             }
             else if (port_result.attempted)
             {
-                port_read_failures.erase(
+                runtime.port_read_failures.erase(
                     port_result.slave_position);
                 events.insert(
                     events.end(),
@@ -346,11 +386,11 @@ int main()
             for (const FaultEvent& event : events)
             {
                   printFaultEvent(event);
-                  blackbox.trigger(event);
+                  runtime.blackbox.trigger(event);
 
                   if (event.type != EventType::MASTER_LINK_UP)
                   {
-                      last_fault_timestamp_ms = event.timestamp_ms;
+                      runtime.last_fault_timestamp_ms = event.timestamp_ms;
                   }
               }
 
@@ -366,8 +406,8 @@ int main()
 
               const std::optional<DiagResult>
                   diagnosis_result =
-                      diagnosis_coordinator.process(
-                          previous_snapshot,
+                      runtime.diagnosis_coordinator.process(
+                          runtime.previous_snapshot,
                           snapshot,
                           events);
 
@@ -380,11 +420,11 @@ int main()
               }
 
               DiagnosisEvidence evidence =
-                  evidence_builder.build(
+                  runtime.evidence_builder.build(
                       snapshot,
                       events,
                       diagnosis_result);
-              evidence_window.push(evidence);
+              runtime.evidence_window.push(evidence);
 
               bool root_cause_triggered = false;
               for (const FaultEvent& event : events)
@@ -401,26 +441,27 @@ int main()
                   std::vector<DiagnosisEvidence> related;
                   if (evidence.boundary)
                   {
-                      related = evidence_window.relatedToBoundary(
+                      related = runtime.evidence_window.relatedToBoundary(
                           *evidence.boundary);
                   }
                   else
                   {
                       related.assign(
-                          evidence_window.recent().begin(),
-                          evidence_window.recent().end());
+                          runtime.evidence_window.recent().begin(),
+                          runtime.evidence_window.recent().end());
                   }
 
-                  latest_root_cause =
-                      root_cause_analyzer.analyze(related);
-                  active_root_cause = latest_root_cause;
+                  runtime.latest_root_cause =
+                      runtime.root_cause_analyzer.analyze(related);
+                  runtime.active_root_cause = runtime.latest_root_cause;
                   std::cout
                       << formatRootCauseReport(
-                             *latest_root_cause)
+                             *runtime.latest_root_cause)
                       << '\n';
 
                   if (!web_data_publisher.appendRootCause(
-                          *latest_root_cause,
+                          snapshot.master.master_index,
+                          *runtime.latest_root_cause,
                           publish_error))
                   {
                       std::cerr
@@ -429,18 +470,19 @@ int main()
               }
 
               const std::optional<RecoveryEvent> recovery =
-                  recovery_tracker.process(
-                      previous_snapshot,
+                  runtime.recovery_tracker.process(
+                      runtime.previous_snapshot,
                       snapshot,
                       events);
 
               if (recovery)
               {
                   printRecoveryEvent(*recovery);
-                  diagnosis_coordinator.resetCooldown();
-                  active_root_cause.reset();
+                  runtime.diagnosis_coordinator.resetCooldown();
+                  runtime.active_root_cause.reset();
 
                   if (!web_data_publisher.appendRecovery(
+                          snapshot.master.master_index,
                           *recovery,
                           publish_error))
                   {
@@ -449,26 +491,33 @@ int main()
                   }
               }
 
-            if (!web_data_publisher.publishStatus(
-                    snapshot,
-                    last_fault_timestamp_ms,
-                    active_root_cause,
-                    publish_error))
-            {
-                std::cerr
-                    << "[WEB_DATA] " << publish_error << '\n';
-            }
+            runtime.previous_snapshot = snapshot;
 
-            previous_snapshot = snapshot;
-            
-            if (blackbox.state() ==
-                    BlackboxState::SAVING &&
-                !blackbox_save_attempted)
+            std::vector<PublishedMasterStatus> statuses;
+            for (const auto& [master_index, state] : runtimes)
             {
-                blackbox_save_attempted = true;
+                (void)master_index;
+                if (state->previous_snapshot)
+                {
+                    statuses.push_back(PublishedMasterStatus{
+                        *state->previous_snapshot,
+                        state->last_fault_timestamp_ms,
+                        state->active_root_cause});
+                }
+            }
+            if (!web_data_publisher.publishStatus(statuses, publish_error))
+            {
+                std::cerr << "[WEB_DATA] " << publish_error << '\n';
+            }
+            
+            if (runtime.blackbox.state() ==
+                    BlackboxState::SAVING &&
+                !runtime.blackbox_save_attempted)
+            {
+                runtime.blackbox_save_attempted = true;
 
                 const auto& trigger_event =
-                    blackbox.triggerEvent();
+                    runtime.blackbox.triggerEvent();
 
                 if (!trigger_event)
                 {
@@ -479,24 +528,25 @@ int main()
 
                 const std::filesystem::path file_path =
                     makeUniqueBlackboxPath(
-                        log_directory,
+                        log_directory / ("master" +
+                            std::to_string(snapshot.master.master_index)),
                         trigger_event->timestamp_ms);
 
-                if (blackbox.saveToFile(
+                if (runtime.blackbox.saveToFile(
                         file_path.string()))
                 {
                     bool root_cause_saved = true;
-                    if (latest_root_cause)
+                    if (runtime.latest_root_cause)
                     {
                         root_cause_saved =
                             appendRootCauseReportJsonl(
                                 file_path.string(),
-                                *latest_root_cause);
+                                *runtime.latest_root_cause);
                     }
 
                     std::cout
                         << "[BLACKBOX] Saved "
-                        << blackbox.size()
+                        << runtime.blackbox.size()
                         << " snapshots to "
                         << file_path.string()
                         << '\n';

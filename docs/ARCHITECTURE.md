@@ -2,7 +2,7 @@
 
 [简体中文](ARCHITECTURE.zh-CN.md) | English
 
-IgH EtherCAT Diagnostics v3.0.0 separates acquisition, detection, diagnosis, persistence, and presentation. The diagnostic daemon observes an existing IgH Master through its character device; it does not join the PDO real-time loop or call `ecrt_request_master()`.
+IgH EtherCAT Diagnostics v3.1.0 separates acquisition, detection, diagnosis, persistence, and presentation. The diagnostic daemon observes existing IgH Masters through their character devices; it does not join the PDO real-time loop or call `ecrt_request_master()`.
 
 ```text
 /dev/EtherCAT0
@@ -37,7 +37,7 @@ IgH ioctl backend ----> NetworkSnapshot ----> Monitor (1 Hz)
 
 ## Runtime data flow
 
-1. `IoctlSnapshotReader` and `IghMasterDevice` read Master and Slave state directly from `/dev/EtherCATN`. The production monitoring path does not launch a shell process.
+1. `IoctlSnapshotReader` and `IghMasterDevice` read each configured `/dev/EtherCATN`. Detection, history, recovery, and root-cause state are isolated per Master. EEPROM Alias plus relative position is the stable identity; Position is only the current register-access address.
 2. `Monitor` produces one `NetworkSnapshot` per second. Downstream modules depend on this typed snapshot rather than the acquisition mechanism.
 3. `EventDetector`, `RecoveryTracker`, and `PortErrorTracker` compare snapshots and emit topology, AL-state, recovery, and counter-delta events.
 4. The rolling black box retains pre-fault history. A fault starts post-trigger capture and produces a JSONL evidence file.

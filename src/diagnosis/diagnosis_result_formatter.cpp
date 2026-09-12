@@ -18,6 +18,7 @@ namespace
 std::string formatHex16(std::uint16_t value)
 {
     std::ostringstream output;
+
     output
         << "0x"
         << std::hex
@@ -36,6 +37,22 @@ std::string formatBoundary(const FaultBoundary& boundary)
     }
 
     std::ostringstream output;
+
+    if (boundary.first_lost_alias > 0)
+    {
+        if (boundary.last_alive_alias > 0)
+        {
+            output << "Alias" << boundary.last_alive_alias << ':'
+                   << boundary.last_alive_relative_position;
+        }
+        else
+        {
+            output << "Master";
+        }
+        output << "<->Alias" << boundary.first_lost_alias << ':'
+               << boundary.first_lost_relative_position;
+        return output.str();
+    }
 
     if (boundary.last_alive_slave == -1 &&
         boundary.first_lost_slave == 0)

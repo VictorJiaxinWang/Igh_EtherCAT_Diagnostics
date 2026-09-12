@@ -166,6 +166,44 @@ void testReadFailureSkipsHandlerAndContinues()
     assert(wait_count == 3);
 }
 
+void testMonitorsEveryConfiguredMasterInOneCycle()
+{
+    MonitorConfig config;
+    config.master_indices = {0, 1};
+
+    std::vector<int> reads;
+    std::vector<int> handled;
+    int waits = 0;
+    Monitor monitor(
+        config,
+        [&](int master_index, NetworkSnapshot& snapshot) {
+            reads.push_back(master_index);
+            snapshot.master.master_index = master_index;
+            return true;
+        },
+        [&](const NetworkSnapshot& snapshot) {
+            handled.push_back(snapshot.master.master_index);
+        },
+        [&](Monitor::Clock::time_point) { ++waits; });
+
+    assert(monitor.run(runOnce()));
+    assert((reads == std::vector<int>{0, 1}));
+    assert((handled == std::vector<int>{0, 1}));
+    assert(waits == 1);
+}
+
+void testRejectsDuplicateConfiguredMasters()
+{
+    MonitorConfig config;
+    config.master_indices = {0, 0};
+    Monitor monitor(
+        config,
+        [](int, NetworkSnapshot&) { return true; },
+        [](const NetworkSnapshot&) {},
+        [](Monitor::Clock::time_point) {});
+    assert(!monitor.run(runOnce()));
+}
+
 void testRejectsNegativeMasterIndex()
 {
     MonitorConfig config;
@@ -283,6 +321,8 @@ int main()
 {
     testRunsThreeFixedIntervalCycles();
     testReadFailureSkipsHandlerAndContinues();
+    testMonitorsEveryConfiguredMasterInOneCycle();
+    testRejectsDuplicateConfiguredMasters();
     testRejectsNegativeMasterIndex();
     testRejectsNonPositiveInterval();
     testRejectsMissingCallbacks();

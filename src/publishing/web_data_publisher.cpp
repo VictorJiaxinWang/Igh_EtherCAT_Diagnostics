@@ -6,6 +6,7 @@
 #include <sstream>
 #include <system_error>
 #include <utility>
+#include <algorithm>
 
 namespace
 {
@@ -110,7 +111,11 @@ std::string faultEventJson(const FaultEvent& event)
     output << "{\"record\":\"event\""
            << ",\"timestamp_ms\":" << event.timestamp_ms
            << ",\"type\":\"" << eventTypeToString(event.type) << '"'
+           << ",\"master_index\":" << event.master_index
            << ",\"slave_position\":" << event.slave_position
+           << ",\"slave_alias\":" << event.slave_alias
+           << ",\"slave_relative_position\":"
+           << event.slave_relative_position
            << ",\"port_position\":" << event.port_position
            << ",\"old_value\":" << event.old_value
            << ",\"new_value\":" << event.new_value
@@ -200,6 +205,35 @@ std::string makeLatestStatusJson(
     return output.str();
 }
 
+std::string makeMultiMasterStatusJson(
+    const std::vector<PublishedMasterStatus>& masters)
+{
+    std::uint64_t updated = 0U;
+    int severity = 0;
+    for (const PublishedMasterStatus& master : masters)
+    {
+        updated = std::max(updated, master.snapshot.master.timestamp_ms);
+        const std::string status = healthStatus(master.snapshot, master.root_cause);
+        severity = std::max(severity,
+            status == "FAULT" ? 2 : (status == "DEGRADED" ? 1 : 0));
+    }
+    std::ostringstream output;
+    output << "{\"schema_version\":2,\"updated_ms\":" << updated
+           << ",\"status\":\""
+           << (severity == 2 ? "FAULT" : (severity == 1 ? "DEGRADED" : "HEALTHY"))
+           << "\",\"masters\":[";
+    for (std::size_t index = 0; index < masters.size(); ++index)
+    {
+        if (index != 0U) output << ',';
+        output << makeLatestStatusJson(
+            masters[index].snapshot,
+            masters[index].last_fault_timestamp_ms,
+            masters[index].root_cause);
+    }
+    output << "]}";
+    return output.str();
+}
+
 WebDataPublisher::WebDataPublisher(std::filesystem::path directory)
     : directory_(std::move(directory))
 {
@@ -275,6 +309,40 @@ bool WebDataPublisher::publishStatus(
     return true;
 }
 
+bool WebDataPublisher::publishStatus(
+    const std::vector<PublishedMasterStatus>& masters,
+    std::string& error) const
+{
+    error.clear();
+    if (masters.empty() || !ensureDirectory(error))
+    {
+        if (error.empty()) error = "no master status to publish";
+        return false;
+    }
+    const std::filesystem::path temporary = statusPath().string() + ".tmp";
+    std::ofstream output(temporary, std::ios::trunc);
+    if (!output.is_open())
+    {
+        error = "failed to open temporary status file";
+        return false;
+    }
+    output << makeMultiMasterStatusJson(masters) << '\n';
+    output.close();
+    if (!output)
+    {
+        error = "failed to write temporary status file";
+        return false;
+    }
+    std::error_code rename_error;
+    std::filesystem::rename(temporary, statusPath(), rename_error);
+    if (rename_error)
+    {
+        error = "failed to replace latest status: " + rename_error.message();
+        return false;
+    }
+    return true;
+}
+
 bool WebDataPublisher::appendLine(
     const std::string& line,
     std::string& error) const
@@ -321,9 +389,29 @@ bool WebDataPublisher::appendRecovery(
     return appendLine(recoveryJson(recovery), error);
 }
 
+bool WebDataPublisher::appendRecovery(
+    int master_index,
+    const RecoveryEvent& recovery,
+    std::string& error) const
+{
+    std::string json = recoveryJson(recovery);
+    json.insert(1U, "\"master_index\":" + std::to_string(master_index) + ",");
+    return appendLine(json, error);
+}
+
 bool WebDataPublisher::appendRootCause(
     const RootCauseReport& root_cause,
     std::string& error) const
 {
     return appendLine(rootCauseReportToJson(root_cause), error);
+}
+
+bool WebDataPublisher::appendRootCause(
+    int master_index,
+    const RootCauseReport& root_cause,
+    std::string& error) const
+{
+    std::string json = rootCauseReportToJson(root_cause);
+    json.insert(1U, "\"master_index\":" + std::to_string(master_index) + ",");
+    return appendLine(json, error);
 }

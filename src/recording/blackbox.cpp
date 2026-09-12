@@ -303,6 +303,17 @@ bool Blackbox::saveToFile(
             << event.slave_position
             ;
 
+        if (event.master_index >= 0)
+        {
+            output << ",\"master_index\":" << event.master_index;
+        }
+        if (event.slave_alias > 0)
+        {
+            output << ",\"slave_alias\":" << event.slave_alias
+                   << ",\"slave_relative_position\":"
+                   << event.slave_relative_position;
+        }
+
         if (event.port_position >= 0)
         {
             output

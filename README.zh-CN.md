@@ -4,7 +4,7 @@
 
 这是一个面向 IgH EtherCAT Master 系统的独立 EtherCAT 监控与故障诊断工具。
 
-版本：**v3.0.0**  
+版本：**v3.1.0**  
 作者：**Victor-Jiaxin Wang**  
 许可证：**MIT**
 
@@ -38,11 +38,13 @@
 - 原子更新当前状态，追加记录历史事件。
 - 零第三方依赖的 C++ HTTP 服务和响应式中文诊断页面。
 - 支持 systemd、`SIGINT`/`SIGTERM` 优雅退出和自动化回归测试。
+- 可配置监测 Master 0、Master 1 或同时监测二者，各 Master 的诊断状态完全隔离。
+- 以 EEPROM Alias（`alias:relative_position`）识别从站；Position 只用于当前 ioctl 寻址，`rescan` 后不会误判身份。
 
 ## 软件结构
 
 ```text
-/dev/EtherCAT0 -> ioctl 后端 -> NetworkSnapshot -> 1 Hz Monitor
+/dev/EtherCAT0,1 -> ioctl 后端 -> 每个 Master 独立的 NetworkSnapshot -> 1 Hz Monitor
                                             |
        +--------------------+---------------+------------------+
        |                    |                                  |
@@ -121,7 +123,7 @@ ethercat slaves -m 0
 ```bash
 mkdir -p "$HOME/igh-ethercat-diagnostics-runtime"
 cd "$HOME/igh-ethercat-diagnostics-runtime"
-/你的仓库路径/build/igh-ethercat-diagnostics
+/你的仓库路径/build/igh-ethercat-diagnostics --masters 0,1
 ```
 
 如果当前用户无法打开 `/dev/EtherCAT0`，可把用户加入设备所属组并重新登录，或临时使用 root 运行探针。不要把设备节点改成所有用户可写。
@@ -134,6 +136,17 @@ sudo usermod -aG ethercat "$USER"
 ```
 
 ## 安装和 systemd 部署
+
+安装后在 `/etc/default/igh-ethercat-diagnostics` 选择监测范围：
+
+```bash
+# 仅 Master 0：IGH_DIAG_MASTERS=0
+# 仅 Master 1：IGH_DIAG_MASTERS=1
+# 同时监测：
+IGH_DIAG_MASTERS=0,1
+```
+
+可复制工程中的 `packaging/igh-ethercat-diagnostics.default` 作为配置模板；修改配置后重启诊断服务。
 
 ```bash
 sudo cmake --install build
@@ -170,7 +183,8 @@ sudo systemctl disable igh-ethercat-diagnostics.service
 logs/
 ├── latest_status.json
 ├── events.jsonl
-└── fault_<timestamp_ms>.jsonl
+├── master0/fault_<timestamp_ms>.jsonl
+└── master1/fault_<timestamp_ms>.jsonl
 ```
 
 `latest_status.json` 可以反复读取。持续消费 `events.jsonl` 时，应按“一行一个 JSON 对象”解析，并保存上次读到的文件偏移量。
